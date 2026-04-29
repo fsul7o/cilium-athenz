@@ -3,7 +3,7 @@ config:
   constraints:
     athenz:
       domain:
-        name: ""
+        name: "cilium"
         prefix: ""
         suffix: ""
       namespace:
@@ -36,9 +36,12 @@ config:
           apinodes:
             url: http://127.0.0.1:8002/api/v1/nodes
     kubernetes:
-      namespaces: [] # leave this as an empty array to disable checking
+      namespaces:
+        - kube-system
       serviceaccount:
-        names: [] # leave this as an empty array to disable checking
+        names:
+          - cilium-agent
+          - cilium-operator
         token:
           issuers:
             - https://kubernetes.default.svc
