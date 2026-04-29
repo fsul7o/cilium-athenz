@@ -2,6 +2,15 @@ image:
   pullPolicy: Never
   useDigest: false
 
+serviceAccounts:
+  cilium:
+    name: cilium-agent
+
+hostAliases:
+  - ip: "__ATHENZ_ZTS_HOST_IP__"
+    hostnames:
+      - athenz-zts-server.athenz
+
 operator:
   nodeSelector:
     kubernetes.io/os: linux
@@ -9,6 +18,10 @@ operator:
   image:
     pullPolicy: Never
     useDigest: false
+  hostAliases:
+    - ip: "__ATHENZ_ZTS_HOST_IP__"
+      hostnames:
+        - athenz-zts-server.athenz
 
 envoy:
   image:
@@ -18,6 +31,13 @@ envoy:
 authentication:
   enabled: true
   mutual:
+    athenz:
+      enabled: true
+      domain: cilium
+      providerService: cilium.identityprovider
+      zts:
+        endpoint: https://athenz-zts-server.athenz:32443/zts/v1
+        caSecretName: athenz-cacert
     spire:
       enabled: true
       install:

@@ -41,6 +41,7 @@ help:
 		'  build-athenz-identityprovider   Full setup in one command (default)' \
 		'  setup-athenz-identityprovider   Register in Athenz and generate Secret manifest' \
 		'  deploy-athenz-identityprovider  Apply kustomize and verify rollout' \
+		'  clean-athenz-identityprovider   Delete deployed resources, remote Secret, and RBAC' \
 		'  deploy-remote-rbac             Apply RBAC to the target cluster' \
 		'  status-athenz-identityprovider Show deployment and Secret status' \
 		'' \
@@ -80,11 +81,14 @@ check-local-files:
 	@test -f $(KUSTOMIZE_DIR)/deployment.yaml || { echo 'missing $(KUSTOMIZE_DIR)/deployment.yaml'; exit 1; }
 	@test -f $(TLS_SECRET_MANIFEST) || { echo 'missing $(TLS_SECRET_MANIFEST); run make setup-athenz-identityprovider'; exit 1; }
 
-clean-athenz-identityprovider:
+clean-athenz-identityprovider: delete-remote-kubeconfig-secret clean-remote-rbac
 	$(KUBECTL) delete -k $(KUSTOMIZE_DIR) --ignore-not-found
 
 deploy-remote-rbac:
 	$(REMOTE_KUBECTL) apply -k $(REMOTE_RBAC_DIR)
+
+clean-remote-rbac:
+	$(REMOTE_KUBECTL) delete -k $(REMOTE_RBAC_DIR) --ignore-not-found
 
 create-remote-kubeconfig-secret: generate-remote-kubeconfig
 	$(KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) create secret generic $(REMOTE_SECRET_NAME) \

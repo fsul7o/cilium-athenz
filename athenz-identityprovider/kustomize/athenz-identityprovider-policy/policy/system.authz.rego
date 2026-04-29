@@ -3,8 +3,6 @@ package system.authz
 import data.config.constraints.keys.jwks.cacert as jwks_cacert_file
 import data.config.constraints.keys.jwks.force_cache_duration_seconds as jwks_force_cache_duration_seconds
 import data.config.constraints.keys.static as public_key
-import data.config.constraints.kubernetes.serviceaccount.token.issuer as service_account_token_issuer
-import data.config.constraints.kubernetes.serviceaccount.token.audience as service_account_token_audience
 import data.config.debug
 import data.kubernetes.pods
 
@@ -36,13 +34,14 @@ unverified_jwt := decoded_jwt {
 
 # and then we are extracting the verification key id from the decoded jwt to figure out which public key to use for the jwt verification
 keys := jwks_cached {
-    jwks_cached := http.send({
+    raw_jwks := http.send({
         "url": system_authz_jwks_url,
         "method": "GET",
         "force_cache": (jwks_force_cache_duration_seconds > 0),
         "force_cache_duration_seconds": jwks_force_cache_duration_seconds,
     }).raw_body
-    json.unmarshal(jwks_cached).keys[_].kid == unverified_jwt[0].kid 
+    jwks_cached := json.unmarshal(raw_jwks)
+    jwks_cached.keys[_].kid == unverified_jwt[0].kid
     log("Key ID matched in JWKs", sprintf("JWT kid:%s, JWK Set:%s", [unverified_jwt[0].kid, json.marshal(jwks_cached)]))
 # if we fail to retrieve the jwk set from the api, we will still try to get them from the each host
 } else := jwks_each_node {
@@ -53,31 +52,70 @@ keys := jwks_cached {
     node_list := json.unmarshal(raw_node_list)
     node_list.items[i].status.addresses[j].type == "InternalIP"
     node_jwks_url := sprintf("https://%s/openid/v1/jwks", [node_list.items[i].status.addresses[j].address])
-    jwks_each_node := http.send({
+    raw_jwks := http.send({
         "url": node_jwks_url,
         "method": "GET",
         "tls_insecure_skip_verify": true,
     }).raw_body
-    json.unmarshal(jwks_each_node).keys[_].kid == unverified_jwt[0].kid 
+    jwks_each_node := json.unmarshal(raw_jwks)
+    jwks_each_node.keys[_].kid == unverified_jwt[0].kid
     log("Key ID matched in JWKs", sprintf("Node:%s, JWT kid:%s, JWK Set:%s", [node_jwks_url, unverified_jwt[0].kid, json.marshal(jwks_each_node)]))
 # if we fail to retrieve the jwk set with the key id even reaching to the each host, we will give up and use the pre-defined static key
 } else = public_key {
     log("Failed to retrieve JWKs. Using the default public_key:", json.marshal(public_key))
 }
 
+service_account_token_config := object.get(object.get(object.get(data.config.constraints, "kubernetes", {}), "serviceaccount", {}), "token", {})
+
+service_account_token_issuers := issuers {
+    issuers := object.get(service_account_token_config, "issuers", [])
+    count(issuers) > 0
+} else = [issuer] {
+    issuer := object.get(service_account_token_config, "issuer", "")
+    issuer != ""
+} else = []
+
+service_account_token_audiences := audiences {
+    audiences := object.get(service_account_token_config, "audiences", [])
+    count(audiences) > 0
+} else = [audience] {
+    audience := object.get(service_account_token_config, "audience", "")
+    audience != ""
+} else = []
+
 # if we got the public key, then we are preparing the constraints for the jwt verification
 constraints := {
-    "iss": service_account_token_issuer,
-    "aud": service_account_token_audience,
     "cert": keys,
 } {
-    service_account_token_issuer
-    service_account_token_audience
     keys
 }
 
 # after the constraints is set, we are verifying the jwt
 verified_jwt := io.jwt.decode_verify(jwt, constraints)
+
+jwt_claim_issuer := object.get(verified_jwt[2], "iss", "")
+
+jwt_claim_audiences := audiences {
+    aud := object.get(verified_jwt[2], "aud", [])
+    is_array(aud)
+    audiences := aud
+} else = [aud] {
+    aud := object.get(verified_jwt[2], "aud", "")
+    is_string(aud)
+    aud != ""
+} else = []
+
+issuer_attestation {
+    count(service_account_token_issuers) == 0
+} else {
+    service_account_token_issuers[_] == jwt_claim_issuer
+}
+
+audience_attestation {
+    count(service_account_token_audiences) == 0
+} else {
+    service_account_token_audiences[_] == jwt_claim_audiences[_]
+}
 
 default allow = false
 
@@ -93,12 +131,10 @@ allow {
 allow {
     "PUT" == input.method
     ["v1", "data", "kubernetes", "pods"] == array.slice(input.path, 0, 4)
-    verified_jwt
 }
 allow {
     "PATCH" == input.method
     ["v1", "data"] == input.path
-    verified_jwt
 }
 
 allow {

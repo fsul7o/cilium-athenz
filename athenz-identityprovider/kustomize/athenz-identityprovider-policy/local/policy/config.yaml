@@ -42,5 +42,11 @@ config:
       serviceaccount:
         names: []
         token:
+          issuers:
+            - https://kubernetes.default.svc
+            - https://kubernetes.default.svc.cluster.local
+          audiences:
+            - https://kubernetes.default.svc
+            - https://kubernetes.default.svc.cluster.local
           issuer: https://kubernetes.default.svc.cluster.local
           audience: https://kubernetes.default.svc
