@@ -33,18 +33,18 @@ unverified_jwt := decoded_jwt {
 }
 
 # and then we are extracting the verification key id from the decoded jwt to figure out which public key to use for the jwt verification
-keys := jwks_cached {
+keys := raw_jwks {
     raw_jwks := http.send({
         "url": system_authz_jwks_url,
         "method": "GET",
         "force_cache": (jwks_force_cache_duration_seconds > 0),
         "force_cache_duration_seconds": jwks_force_cache_duration_seconds,
     }).raw_body
-    jwks_cached := json.unmarshal(raw_jwks)
-    jwks_cached.keys[_].kid == unverified_jwt[0].kid
-    log("Key ID matched in JWKs", sprintf("JWT kid:%s, JWK Set:%s", [unverified_jwt[0].kid, json.marshal(jwks_cached)]))
+    jwks := json.unmarshal(raw_jwks)
+    jwks.keys[_].kid == unverified_jwt[0].kid
+    log("Key ID matched in JWKs", sprintf("JWT kid:%s, JWK Set:%s", [unverified_jwt[0].kid, json.marshal(jwks)]))
 # if we fail to retrieve the jwk set from the api, we will still try to get them from the each host
-} else := jwks_each_node {
+} else := raw_jwks {
     raw_node_list := http.send({
         "url": system_authz_api_node_url,
         "method": "GET",
@@ -57,9 +57,9 @@ keys := jwks_cached {
         "method": "GET",
         "tls_insecure_skip_verify": true,
     }).raw_body
-    jwks_each_node := json.unmarshal(raw_jwks)
-    jwks_each_node.keys[_].kid == unverified_jwt[0].kid
-    log("Key ID matched in JWKs", sprintf("Node:%s, JWT kid:%s, JWK Set:%s", [node_jwks_url, unverified_jwt[0].kid, json.marshal(jwks_each_node)]))
+    jwks := json.unmarshal(raw_jwks)
+    jwks.keys[_].kid == unverified_jwt[0].kid
+    log("Key ID matched in JWKs", sprintf("Node:%s, JWT kid:%s, JWK Set:%s", [node_jwks_url, unverified_jwt[0].kid, json.marshal(jwks)]))
 # if we fail to retrieve the jwk set with the key id even reaching to the each host, we will give up and use the pre-defined static key
 } else = public_key {
     log("Failed to retrieve JWKs. Using the default public_key:", json.marshal(public_key))
@@ -91,7 +91,40 @@ constraints := {
 }
 
 # after the constraints is set, we are verifying the jwt
-verified_jwt := io.jwt.decode_verify(jwt, constraints)
+verified_jwt := decoded {
+    keys
+    issuer := service_account_token_issuers[_]
+    audience := service_account_token_audiences[_]
+    decoded := io.jwt.decode_verify(jwt, {
+        "cert": keys,
+        "iss": issuer,
+        "aud": audience,
+    })
+    decoded[0] == true
+} else = decoded {
+    keys
+    issuer := service_account_token_issuers[_]
+    count(service_account_token_audiences) == 0
+    decoded := io.jwt.decode_verify(jwt, {
+        "cert": keys,
+        "iss": issuer,
+    })
+    decoded[0] == true
+} else = decoded {
+    keys
+    count(service_account_token_issuers) == 0
+    audience := service_account_token_audiences[_]
+    decoded := io.jwt.decode_verify(jwt, {
+        "cert": keys,
+        "aud": audience,
+    })
+    decoded[0] == true
+} else = decoded {
+    decoded := io.jwt.decode_verify(jwt, constraints)
+    decoded[0] == true
+} else = [false, {}, {}] {
+    constraints
+}
 
 jwt_claim_issuer := object.get(verified_jwt[2], "iss", "")
 

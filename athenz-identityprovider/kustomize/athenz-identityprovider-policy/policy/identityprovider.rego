@@ -34,17 +34,17 @@ unverified_jwt := decoded_jwt {
     decoded_jwt := io.jwt.decode(jwt)
 } else = [{}, {}]
 
-keys := jwks_cached {
+keys := raw_jwks {
     raw_jwks := http.send({
         "url": jwks_url,
         "method": "GET",
         "force_cache": (jwks_force_cache_duration_seconds > 0),
         "force_cache_duration_seconds": jwks_force_cache_duration_seconds,
     }).raw_body
-    jwks_cached := json.unmarshal(raw_jwks)
-    jwks_cached.keys[_].kid == unverified_jwt[0].kid
-    log("Key ID matched in JWKs", sprintf("JWT kid:%s, JWK Set:%s", [unverified_jwt[0].kid, json.marshal(jwks_cached)]))
-} else := jwks_each_node {
+    jwks := json.unmarshal(raw_jwks)
+    jwks.keys[_].kid == unverified_jwt[0].kid
+    log("Key ID matched in JWKs", sprintf("JWT kid:%s, JWK Set:%s", [unverified_jwt[0].kid, json.marshal(jwks)]))
+} else := raw_jwks {
     raw_node_list := http.send({
         "url": api_node_url,
         "method": "GET",
@@ -58,9 +58,9 @@ keys := jwks_cached {
         "method": "GET",
         "tls_insecure_skip_verify": true,
     }).raw_body
-    jwks_each_node := json.unmarshal(raw_jwks)
-    jwks_each_node.keys[_].kid == unverified_jwt[0].kid
-    log("Key ID matched in JWKs", sprintf("Node:%s, JWT kid:%s, JWK Set:%s", [node_jwks_url, unverified_jwt[0].kid, json.marshal(jwks_each_node)]))
+    jwks := json.unmarshal(raw_jwks)
+    jwks.keys[_].kid == unverified_jwt[0].kid
+    log("Key ID matched in JWKs", sprintf("Node:%s, JWT kid:%s, JWK Set:%s", [node_jwks_url, unverified_jwt[0].kid, json.marshal(jwks)]))
 } else = public_key {
     log("Failed to retrieve JWKs. Using the default public_key:", json.marshal(public_key))
 }
@@ -89,7 +89,40 @@ constraints := {
     keys
 }
 
-verified_jwt := io.jwt.decode_verify(jwt, constraints)
+verified_jwt := decoded {
+    keys
+    issuer := service_account_token_issuers[_]
+    audience := service_account_token_audiences[_]
+    decoded := io.jwt.decode_verify(jwt, {
+        "cert": keys,
+        "iss": issuer,
+        "aud": audience,
+    })
+    decoded[0] == true
+} else = decoded {
+    keys
+    issuer := service_account_token_issuers[_]
+    count(service_account_token_audiences) == 0
+    decoded := io.jwt.decode_verify(jwt, {
+        "cert": keys,
+        "iss": issuer,
+    })
+    decoded[0] == true
+} else = decoded {
+    keys
+    count(service_account_token_issuers) == 0
+    audience := service_account_token_audiences[_]
+    decoded := io.jwt.decode_verify(jwt, {
+        "cert": keys,
+        "aud": audience,
+    })
+    decoded[0] == true
+} else = decoded {
+    decoded := io.jwt.decode_verify(jwt, constraints)
+    decoded[0] == true
+} else = [false, {}, {}] {
+    constraints
+}
 
 jwt_kubernetes_claim := extracted_claim {
     extracted_claim := object.get(verified_jwt[2], "kubernetes.io", {})
