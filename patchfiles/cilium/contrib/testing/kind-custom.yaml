@@ -1,0 +1,24 @@
+image:
+  pullPolicy: Never
+  useDigest: false
+
+operator:
+  nodeSelector:
+    kubernetes.io/os: linux
+    kubernetes.io/hostname: cilium-worker
+  image:
+    pullPolicy: Never
+    useDigest: false
+
+envoy:
+  image:
+    pullPolicy: Never
+    useDigest: false
+
+authentication:
+  enabled: true
+  mutual:
+    spire:
+      enabled: true
+      install:
+        enabled: true

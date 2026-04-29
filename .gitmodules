@@ -1,0 +1,7 @@
+[submodule "athenz-distribution"]
+	path = athenz-distribution
+	url = https://github.com/ctyano/athenz-distribution.git
+[submodule "cilium"]
+	path = cilium
+	url = https://github.com/fsul7o/cilium.git
+	branch = integration-athenz

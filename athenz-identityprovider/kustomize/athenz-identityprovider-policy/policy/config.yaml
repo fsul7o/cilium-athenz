@@ -1,0 +1,44 @@
+config:
+  debug: true
+  constraints:
+    athenz:
+      domain:
+        name: ""
+        prefix: ""
+        suffix: ""
+      namespace:
+        trimprefix: ""
+        trimsuffix: ""
+      identityprovider:
+        service: cilium.identityprovider
+    cert:
+      expiry:
+        defaultminutes: 43200
+        maxminutes: 43200
+      refresh: true
+      sandns: # leave this as an empty array to disable checking
+        - glob: "*.*.svc.cluster.local"
+        - glob: "*.instanceid.*.svc.cluster.local"
+        - glob: "*.instanceid.zts.athenz.cloud"
+    keys:
+      jwks:
+        url: http://127.0.0.1:8001/openid/v1/jwks
+        cacert: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        force_cache_duration_seconds: 3600
+      apinodes:
+        url: http://127.0.0.1:8001/api/v1/nodes
+      static: ""
+    system:
+      authz:
+        keys:
+          jwks:
+            url: http://127.0.0.1:8002/openid/v1/jwks
+          apinodes:
+            url: http://127.0.0.1:8002/api/v1/nodes
+    kubernetes:
+      namespaces: [] # leave this as an empty array to disable checking
+      serviceaccount:
+        names: [] # leave this as an empty array to disable checking
+        token:
+          issuer: https://kubernetes.default.svc.cluster.local
+          audience: https://kubernetes.default.svc
