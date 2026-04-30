@@ -7,9 +7,10 @@ serviceAccounts:
     name: cilium-agent
 
 hostAliases:
-  - ip: "__ATHENZ_ZTS_HOST_IP__"
+  - ip: "__ATHENZ_HOST_IP__"
     hostnames:
       - athenz-zts-server.athenz
+      - athenz-zms-server.athenz
 
 operator:
   nodeSelector:
@@ -19,9 +20,10 @@ operator:
     pullPolicy: Never
     useDigest: false
   hostAliases:
-    - ip: "__ATHENZ_ZTS_HOST_IP__"
+    - ip: "__ATHENZ_HOST_IP__"
       hostnames:
         - athenz-zts-server.athenz
+        - athenz-zms-server.athenz
 
 envoy:
   image:
@@ -38,7 +40,9 @@ authentication:
       zts:
         endpoint: https://athenz-zts-server.athenz:32443/zts/v1
         caSecretName: athenz-cacert
-    spire:
-      enabled: true
-      install:
-        enabled: true
+      zms:
+        endpoint: https://athenz-zms-server.athenz:32444/zms/v1
+    # spire:
+    #   enabled: true
+    #   install:
+    #     enabled: true

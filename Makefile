@@ -54,10 +54,10 @@ clean-athenz:
 prepare-cilium-athenz:
 	@athenz_ip="$$(docker inspect "$(ATHENZ_CONTROL_PLANE)" --format '{{with index .NetworkSettings.Networks "$(KIND_REMOTE_NETWORK)"}}{{.IPAddress}}{{end}}')"; \
 	test -n "$$athenz_ip" || { echo "failed to determine IP for $(ATHENZ_CONTROL_PLANE) on $(KIND_REMOTE_NETWORK)"; exit 1; }; \
-	$(MAKE) -C athenz-cilium sync-remote-athenz-cacert sync-kind-athenz-zts-hostaliases setup-athenz-cilium-services \
+	$(MAKE) -C athenz-cilium sync-remote-athenz-cacert sync-kind-athenz-hostaliases setup-athenz-cilium-services \
 		LOCAL_CONTEXT=$(ATHENZ_LOCAL_CONTEXT) \
 		REMOTE_CONTEXT=$(CILIUM_REMOTE_CONTEXT) \
-		LOCAL_ZTS_ENDPOINT_IP="$$athenz_ip"
+		LOCAL_ATHENZ_ENDPOINT_IP="$$athenz_ip"
 
 deploy-cilium: prepare-cilium-athenz
 	kind load docker-image quay.io/cilium/cilium-envoy:v1.35.9-1773656288-7b052e66eb2cfc5ac130ce0a5be66202a10d83be --name cilium
