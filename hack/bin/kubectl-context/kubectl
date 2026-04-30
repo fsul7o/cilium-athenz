@@ -1,0 +1,8 @@
+#!/bin/sh
+
+set -eu
+
+: "${REAL_KUBECTL:?REAL_KUBECTL is required}"
+: "${KUBECTL_CONTEXT:?KUBECTL_CONTEXT is required}"
+
+exec "${REAL_KUBECTL}" --context "${KUBECTL_CONTEXT}" "$@"

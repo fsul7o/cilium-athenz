@@ -1,11 +1,19 @@
 
 KIND ?= kind
+KUBECTL ?= kubectl
+CILIUM_CLI ?= cilium
 KIND_LOCAL_CLUSTER ?= cilium-athenz
 KIND_REMOTE_CLUSTER ?= cilium
 KIND_REMOTE_NETWORK ?= kind-$(KIND_REMOTE_CLUSTER)
 ATHENZ_LOCAL_CONTEXT ?= kind-$(KIND_LOCAL_CLUSTER)
 CILIUM_REMOTE_CONTEXT ?= kind-$(KIND_REMOTE_CLUSTER)
 ATHENZ_CONTROL_PLANE ?= $(KIND_LOCAL_CLUSTER)-control-plane
+REAL_KUBECTL ?= $(shell command -v kubectl 2>/dev/null || printf '%s' kubectl)
+LOCAL_KUBECTL ?= $(KUBECTL) --context $(ATHENZ_LOCAL_CONTEXT)
+REMOTE_KUBECTL ?= $(KUBECTL) --context $(CILIUM_REMOTE_CONTEXT)
+REMOTE_CILIUM_CLI ?= $(CILIUM_CLI) --context $(CILIUM_REMOTE_CONTEXT)
+KUBECTL_CONTEXT_WRAPPER_DIR := $(abspath hack/bin/kubectl-context)
+LOCAL_KUBECTL_ENV := PATH="$(KUBECTL_CONTEXT_WRAPPER_DIR):$$PATH" REAL_KUBECTL="$(REAL_KUBECTL)" KUBECTL_CONTEXT="$(ATHENZ_LOCAL_CONTEXT)"
 
 patch:
 	rsync -av --exclude=".gitkeep" patchfiles/cilium/* cilium
@@ -37,13 +45,11 @@ kind-delete:
 	$(KIND) delete cluster --name $(KIND_REMOTE_CLUSTER)
 
 deploy-athenz: 
-	kubectl config use-context kind-cilium-athenz
-	$(MAKE) -C athenz-distribution clean-kubernetes-athenz
-	$(MAKE) -C athenz-distribution deploy-kubernetes-athenz
+	$(LOCAL_KUBECTL_ENV) $(MAKE) -C athenz-distribution clean-kubernetes-athenz
+	$(LOCAL_KUBECTL_ENV) $(MAKE) -C athenz-distribution deploy-kubernetes-athenz
 
 clean-athenz:
-	kubectl config use-context kind-cilium-athenz
-	$(MAKE) -C athenz-distribution clean-kubernetes-athenz
+	$(LOCAL_KUBECTL_ENV) $(MAKE) -C athenz-distribution clean-kubernetes-athenz
 
 prepare-cilium-athenz:
 	@athenz_ip="$$(docker inspect "$(ATHENZ_CONTROL_PLANE)" --format '{{with index .NetworkSettings.Networks "$(KIND_REMOTE_NETWORK)"}}{{.IPAddress}}{{end}}')"; \
@@ -54,23 +60,19 @@ prepare-cilium-athenz:
 		LOCAL_ZTS_ENDPOINT_IP="$$athenz_ip"
 
 deploy-cilium: prepare-cilium-athenz
-	kubectl config use-context kind-cilium
 	kind load docker-image quay.io/cilium/cilium-envoy:v1.35.9-1773656288-7b052e66eb2cfc5ac130ce0a5be66202a10d83be --name cilium
 
-	$(MAKE) -C cilium kind-image
-	$(MAKE) -C cilium kind-install-cilium
+	$(MAKE) -C cilium kind-image KIND_CLUSTER_NAME=$(KIND_REMOTE_CLUSTER)
+	$(MAKE) -C cilium kind-install-cilium KIND_CLUSTER_NAME=$(KIND_REMOTE_CLUSTER) CILIUM_CLI="$(REMOTE_CILIUM_CLI)"
 
 clean-cilium:
-	kubectl config use-context kind-cilium
-	$(MAKE) -C cilium kind-uninstall-cilium
+	$(MAKE) -C cilium kind-uninstall-cilium KIND_CLUSTER_NAME=$(KIND_REMOTE_CLUSTER) CILIUM_CLI="$(REMOTE_CILIUM_CLI)"
 
 deploy-identityprovider:
-	kubectl config use-context kind-cilium-athenz
-	$(MAKE) -C athenz-identityprovider build-athenz-identityprovider
+	$(MAKE) -C athenz-identityprovider build-athenz-identityprovider LOCAL_CONTEXT=$(ATHENZ_LOCAL_CONTEXT) REMOTE_CONTEXT=$(CILIUM_REMOTE_CONTEXT)
 
 cleanup-identityprovider:
-	kubectl config use-context kind-cilium-athenz
-	$(MAKE) -C athenz-identityprovider clean-athenz-identityprovider
+	$(MAKE) -C athenz-identityprovider clean-athenz-identityprovider LOCAL_CONTEXT=$(ATHENZ_LOCAL_CONTEXT) REMOTE_CONTEXT=$(CILIUM_REMOTE_CONTEXT)
 
 kind-cleanup:
 	$(KIND) delete cluster --name $(KIND_LOCAL_CLUSTER)

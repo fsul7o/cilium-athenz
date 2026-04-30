@@ -6,6 +6,8 @@ DOCKER_REGISTRY := ghcr.io/ctyano/
 endif
 
 KUBECTL ?= kubectl
+LOCAL_CONTEXT ?= kind-cilium-athenz
+LOCAL_KUBECTL ?= $(KUBECTL) --context $(LOCAL_CONTEXT)
 REMOTE_CONTEXT ?= kind-cilium
 REMOTE_KUBECTL ?= $(KUBECTL) --context $(REMOTE_CONTEXT)
 KIND ?= kind
@@ -46,7 +48,9 @@ help:
 		'  status-athenz-identityprovider Show deployment and Secret status' \
 		'' \
 		'Variables:' \
+		'  LOCAL_CONTEXT=kind-cilium-athenz' \
 		'  REMOTE_CONTEXT=kind-cilium' \
+		'  LOCAL_KUBECTL=kubectl --context <local-context>' \
 		'  REMOTE_KIND_CLUSTER_NAME='$(REMOTE_KIND_CLUSTER_NAME) \
 		'  REMOTE_KUBECONFIG='$(REMOTE_KUBECONFIG) \
 		'  ATHENZ_SERVICE_DOMAIN='$(ATHENZ_SERVICE_DOMAIN) \
@@ -82,7 +86,7 @@ check-local-files:
 	@test -f $(TLS_SECRET_MANIFEST) || { echo 'missing $(TLS_SECRET_MANIFEST); run make setup-athenz-identityprovider'; exit 1; }
 
 clean-athenz-identityprovider: delete-remote-kubeconfig-secret clean-remote-rbac
-	$(KUBECTL) delete -k $(KUSTOMIZE_DIR) --ignore-not-found
+	$(LOCAL_KUBECTL) delete -k $(KUSTOMIZE_DIR) --ignore-not-found
 
 deploy-remote-rbac:
 	$(REMOTE_KUBECTL) apply -k $(REMOTE_RBAC_DIR)
@@ -91,15 +95,15 @@ clean-remote-rbac:
 	$(REMOTE_KUBECTL) delete -k $(REMOTE_RBAC_DIR) --ignore-not-found
 
 create-remote-kubeconfig-secret: generate-remote-kubeconfig
-	$(KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) create secret generic $(REMOTE_SECRET_NAME) \
+	$(LOCAL_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) create secret generic $(REMOTE_SECRET_NAME) \
 		--from-file=kubeconfig=$(REMOTE_KUBECONFIG) \
-		--dry-run=client -o yaml | $(KUBECTL) apply -f -
+		--dry-run=client -o yaml | $(LOCAL_KUBECTL) apply -f -
 
 delete-remote-kubeconfig-secret:
-	$(KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) delete secret $(REMOTE_SECRET_NAME) --ignore-not-found
+	$(LOCAL_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) delete secret $(REMOTE_SECRET_NAME) --ignore-not-found
 
 register-athenz-identityprovider: generate-private-key
-	$(KUBECTL) -n athenz exec deployment/athenz-cli -- \
+	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		curl \
 			-sS \
 			-d"{\"name\":\"$(ATHENZ_SERVICE_DOMAIN)\",\"adminUsers\":[\"user.athenz_admin\"]}" \
@@ -107,7 +111,7 @@ register-athenz-identityprovider: generate-private-key
 			--key /var/run/athenz/athenz_admin.private.pem \
 			--cert /var/run/athenz/athenz_admin.cert.pem \
 			"https://athenz-zms-server.athenz:4443/zms/v1/domain" || :
-	$(KUBECTL) -n athenz exec deployment/athenz-cli -- \
+	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -117,7 +121,7 @@ register-athenz-identityprovider: generate-private-key
 			$(SERVICEACCOUNT) \
 			0 \
 			"$$(openssl rsa -in $(PRIVATE_KEY_FILE) -pubout | base64 | tr -d '\r\n' | tr '\+\=\/' '\.\-\_')" || :
-	$(KUBECTL) -n athenz exec deployment/athenz-cli -- \
+	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -127,7 +131,7 @@ register-athenz-identityprovider: generate-private-key
 			$(SERVICEACCOUNT) \
 			0 \
 			"$$(openssl rsa -in $(PRIVATE_KEY_FILE) -pubout | base64 | tr -d '\r\n' | tr '\+\=\/' '\.\-\_')" || :
-	$(KUBECTL) -n athenz exec deployment/athenz-cli -- \
+	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -136,7 +140,7 @@ register-athenz-identityprovider: generate-private-key
 			set-service-endpoint \
 			$(SERVICEACCOUNT) \
 			https://$(IDENTITYPROVIDER_ENDPOINT_HOST)/v0/data/identityprovider
-	$(KUBECTL) -n athenz exec deployment/athenz-cli -- \
+	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -146,7 +150,7 @@ register-athenz-identityprovider: generate-private-key
 			instance_provider \
 			provider="$(ATHENZ_PROVIDER_SERVICE)" \
 			dnssuffix="$(DNS_SUFFIX)"
-	$(KUBECTL) -n athenz exec deployment/athenz-cli -- \
+	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -156,7 +160,7 @@ register-athenz-identityprovider: generate-private-key
 			instance_registration \
 			instanceregisterer="user.athenz_admin" \
 			service="$(SERVICEACCOUNT)"
-	$(KUBECTL) -n athenz exec deployment/athenz-cli -- \
+	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -166,7 +170,7 @@ register-athenz-identityprovider: generate-private-key
 			identity_provisioning \
 			instanceprovider="sys.auth.zts" \
 			service="$(SERVICEACCOUNT)"
-	$(KUBECTL) -n athenz exec deployment/athenz-cli -- \
+	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -183,12 +187,12 @@ check-register-athenz-identityprovider:
 	i=0; \
 	while true; do \
 		printf "\n***** Waiting for ZTS registration ($$(( $$i * $${SLEEP_SECONDS} ))s/$${WAITING_THRESHOLD}s) *****\n"; \
-		if $(KUBECTL) -n athenz exec deployment/athenz-cli -- \
+		if $(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 			curl -sf \
 				-H"Content-type: application/json" \
 				-H"X-Auth-Request-Preferred-Username: user.athenz_admin" \
 				"https://athenz-zts-server.athenz:4443/zts/v1/domain/$(ATHENZ_SERVICE_DOMAIN)/service/$(SERVICEACCOUNT)" >/dev/null \
-			&& $(KUBECTL) -n athenz exec deployment/athenz-cli -- \
+			&& $(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 				sh -c "chmod a+rw /tmp/.*.jwt ||:; zts-svccert -get-instance-register-token -zts $(ENDPOINT) -domain $(ATHENZ_SERVICE_DOMAIN) -service $(SERVICEACCOUNT) -provider $(PROVIDER_SERVICE) -instance $(ATHENZ_PROVIDER_SERVICE) -svc-key-file /var/run/athenz/athenz_admin.private.pem -svc-cert-file /var/run/athenz/athenz_admin.cert.pem -attestation-data /tmp/.identitydocument.jwt" >/dev/null; then \
 			break; \
 		fi; \
@@ -197,7 +201,7 @@ check-register-athenz-identityprovider:
 		i=$$(( i + 1 )); \
 		if [ $$i -eq $$(( $${WAITING_THRESHOLD} / $${SLEEP_SECONDS} )) ]; then \
 			printf "\n\n** Waiting ($$(( $$i * $${SLEEP_SECONDS} ))s) reached threshold ($${WAITING_THRESHOLD}s) **\n\n"; \
-			$(KUBECTL) -n athenz exec deployment/athenz-cli -- \
+			$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 				zms-cli -z https://athenz-zms-server.athenz:4443/zms/v1 -key /var/run/athenz/athenz_admin.private.pem -cert /var/run/athenz/athenz_admin.cert.pem -d $(ATHENZ_SERVICE_DOMAIN) show-domain || :; \
 			exit 1; \
 		fi; \
@@ -207,7 +211,7 @@ check-register-athenz-identityprovider:
 	i=0; \
 	while true; do \
 		printf "\n***** Waiting for launch permission ($$(( $$i * $${SLEEP_SECONDS} ))s/$${WAITING_THRESHOLD}s) *****\n"; \
-		if $(KUBECTL) -n athenz exec deployment/athenz-cli -- \
+		if $(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 			curl -sf \
 				-H"Content-type: application/json" \
 				-H"X-Auth-Request-Preferred-Username: user.athenz_admin" \
@@ -220,35 +224,35 @@ check-register-athenz-identityprovider:
 		i=$$(( i + 1 )); \
 		if [ $$i -eq $$(( $${WAITING_THRESHOLD} / $${SLEEP_SECONDS} )) ]; then \
 			printf "\n\n** Waiting ($$(( $$i * $${SLEEP_SECONDS} ))s) reached threshold ($${WAITING_THRESHOLD}s) **\n\n"; \
-			$(KUBECTL) -n athenz exec deployment/athenz-cli -- \
+			$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 				zms-cli -z https://athenz-zms-server.athenz:4443/zms/v1 -key /var/run/athenz/athenz_admin.private.pem -cert /var/run/athenz/athenz_admin.cert.pem -d $(ATHENZ_SERVICE_DOMAIN) show-domain || :; \
 			exit 1; \
 		fi; \
 	done
 
 setup-athenz-identityprovider: register-athenz-identityprovider check-register-athenz-identityprovider
-	$(KUBECTL) -n athenz exec deployment/athenz-cli -- \
+	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		sh -c "chmod a+rw /tmp/.*.jwt ||:; zts-svccert -get-instance-register-token -zts $(ENDPOINT) -domain $(ATHENZ_SERVICE_DOMAIN) -service $(SERVICEACCOUNT) -provider $(PROVIDER_SERVICE) -instance $(ATHENZ_PROVIDER_SERVICE) -svc-key-file /var/run/athenz/athenz_admin.private.pem -svc-cert-file /var/run/athenz/athenz_admin.cert.pem -attestation-data /tmp/.identitydocument.jwt"
-	$(KUBECTL) -n athenz exec deployment/athenz-cli -- \
+	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		cat /tmp/.identitydocument.jwt > identitydocument.jwt
-	$(KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) create secret generic identityprovider-jwt \
+	$(LOCAL_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) create secret generic identityprovider-jwt \
 		--from-file=identitydocument.jwt=identitydocument.jwt \
 		--dry-run=client -o yaml > $(TLS_SECRET_MANIFEST)
-	$(KUBECTL) -n athenz exec -i deployment/athenz-cli -- \
+	$(LOCAL_KUBECTL) -n athenz exec -i deployment/athenz-cli -- \
 		sh -c 'cat > /tmp/identityprovider.private.key.pem' < $(PRIVATE_KEY_FILE)
-	$(KUBECTL) -n athenz exec deployment/athenz-cli -- \
+	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		sh -c "chmod a+rw /tmp/*.pem ||:; zts-svccert -zts $(ENDPOINT) -domain $(ATHENZ_SERVICE_DOMAIN) -service $(SERVICEACCOUNT) -provider $(PROVIDER_SERVICE) -instance $(ATHENZ_PROVIDER_SERVICE) -attestation-data /tmp/.identitydocument.jwt -dns-domain $(DNS_SUFFIX) -private-key /tmp/identityprovider.private.key.pem -cert-file /tmp/$(ATHENZ_PROVIDER_SERVICE).cert.pem -signer-cert-file /tmp/ca.cert.pem"
-	$(KUBECTL) -n athenz exec deployment/athenz-cli -- \
+	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		cat /tmp/$(ATHENZ_PROVIDER_SERVICE).cert.pem > $(SERVICE_CERT_FILE)
 	printf "\n---\n" >> $(TLS_SECRET_MANIFEST)
-	$(KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) create secret tls $(CERT_SECRET) \
+	$(LOCAL_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) create secret tls $(CERT_SECRET) \
 		--key $(PRIVATE_KEY_FILE) \
 		--cert $(SERVICE_CERT_FILE) \
 		--dry-run=client -o yaml >> $(TLS_SECRET_MANIFEST)
 
 deploy-athenz-identityprovider: check-local-files create-remote-kubeconfig-secret
-	$(KUBECTL) apply -k $(KUSTOMIZE_DIR)
-	$(KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) rollout restart deployment/identityprovider-deployment
+	$(LOCAL_KUBECTL) apply -k $(KUSTOMIZE_DIR)
+	$(LOCAL_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) rollout restart deployment/identityprovider-deployment
 	$(MAKE) test-athenz-identityprovider
 
 build-athenz-identityprovider: generate-remote-kubeconfig generate-private-key deploy-remote-rbac setup-athenz-identityprovider deploy-athenz-identityprovider status-athenz-identityprovider
@@ -264,8 +268,8 @@ test-athenz-identityprovider:
 	i=0; \
 	while true; do \
 		printf "\n***** Waiting for identityprovider ($$(( $$i * $${SLEEP_SECONDS} ))s/$${WAITING_THRESHOLD}s) *****\n"; \
-		if $(KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) rollout status deployment/identityprovider-deployment --timeout=5s >/dev/null 2>&1 \
-			&& $(KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) exec deployment/identityprovider-deployment -c sia -- \
+		if $(LOCAL_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) rollout status deployment/identityprovider-deployment --timeout=5s >/dev/null 2>&1 \
+			&& $(LOCAL_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) exec deployment/identityprovider-deployment -c sia -- \
 				ls -alF /var/run/athenz/tls.key /var/run/athenz/tls.crt /var/run/athenz/ca.crt >/dev/null; then \
 			break; \
 		fi; \
@@ -274,20 +278,20 @@ test-athenz-identityprovider:
 		i=$$(( i + 1 )); \
 		if [ $$i -eq $$(( $${WAITING_THRESHOLD} / $${SLEEP_SECONDS} )) ]; then \
 			printf "\n\n** Waiting ($$(( $$i * $${SLEEP_SECONDS} ))s) reached threshold ($${WAITING_THRESHOLD}s) **\n\n"; \
-			$(KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get pods -l app=identityprovider-deployment; \
-			$(KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) logs deployment/identityprovider-deployment --all-containers=true || :; \
-			$(KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) describe deployment identityprovider-deployment || :; \
+			$(LOCAL_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get pods -l app=identityprovider-deployment; \
+			$(LOCAL_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) logs deployment/identityprovider-deployment --all-containers=true || :; \
+			$(LOCAL_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) describe deployment identityprovider-deployment || :; \
 			exit 1; \
 		fi; \
 	done
-	$(KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get all
+	$(LOCAL_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get all
 
 status-athenz-identityprovider:
-	$(KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get deployment identityprovider-deployment
-	$(KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get pods -l app=identityprovider-deployment
-	$(KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get secret identityprovider-jwt
-	$(KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get secret $(CERT_SECRET)
-	$(KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get secret $(REMOTE_SECRET_NAME)
+	$(LOCAL_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get deployment identityprovider-deployment
+	$(LOCAL_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get pods -l app=identityprovider-deployment
+	$(LOCAL_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get secret identityprovider-jwt
+	$(LOCAL_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get secret $(CERT_SECRET)
+	$(LOCAL_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get secret $(REMOTE_SECRET_NAME)
 
 logs-athenz-identityprovider:
-	$(KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) logs deployment/identityprovider-deployment --all-containers=true --tail=200
+	$(LOCAL_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) logs deployment/identityprovider-deployment --all-containers=true --tail=200
