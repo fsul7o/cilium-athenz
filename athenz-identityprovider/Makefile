@@ -33,6 +33,8 @@ ENDPOINT := $(shell sed -n 's/^ENDPOINT=//p' $(KUSTOMIZE_DIR)/athenz-sia/athenz-
 CERT_SECRET := $(shell sed -n 's/^CERT_SECRET=//p' $(KUSTOMIZE_DIR)/athenz-sia/athenz-sia.env | tail -n 1)
 ATHENZ_SERVICE_DOMAIN := $(if $(ATHENZ_SERVICE_DOMAIN_CONFIG),$(ATHENZ_SERVICE_DOMAIN_CONFIG),$(KUSTOMIZE_NAMESPACE))
 ATHENZ_PROVIDER_SERVICE := $(ATHENZ_SERVICE_DOMAIN).$(SERVICEACCOUNT)
+IDENTITYPROVIDERS_ROLE := identityproviders
+IDENTITYPROVIDERS_POLICY := identityproviders
 
 help:
 	@printf '%s\n' \
@@ -181,6 +183,44 @@ register-athenz-identityprovider: generate-private-key
 			instanceprovider="$(ATHENZ_PROVIDER_SERVICE)" \
 			service="$(SERVICEACCOUNT)"
 
+configure-identityprovider-launch-policy:
+	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			add-regular-role \
+			$(IDENTITYPROVIDERS_ROLE) \
+			$(ATHENZ_PROVIDER_SERVICE) || :
+	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			add-member \
+			$(IDENTITYPROVIDERS_ROLE) \
+			$(ATHENZ_PROVIDER_SERVICE) || :
+	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			add-policy \
+			$(IDENTITYPROVIDERS_POLICY) \
+			grant launch to $(IDENTITYPROVIDERS_ROLE) on '$(ATHENZ_SERVICE_DOMAIN):service.*' || :
+	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			add-assertion \
+			$(IDENTITYPROVIDERS_POLICY) \
+			grant launch to $(IDENTITYPROVIDERS_ROLE) on '$(ATHENZ_SERVICE_DOMAIN):service.*' || :
+
 check-register-athenz-identityprovider:
 	SLEEP_SECONDS=5; \
 	WAITING_THRESHOLD=60; \
@@ -230,7 +270,7 @@ check-register-athenz-identityprovider:
 		fi; \
 	done
 
-setup-athenz-identityprovider: register-athenz-identityprovider check-register-athenz-identityprovider
+setup-athenz-identityprovider: register-athenz-identityprovider configure-identityprovider-launch-policy check-register-athenz-identityprovider
 	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		sh -c "chmod a+rw /tmp/.*.jwt ||:; zts-svccert -get-instance-register-token -zts $(ENDPOINT) -domain $(ATHENZ_SERVICE_DOMAIN) -service $(SERVICEACCOUNT) -provider $(PROVIDER_SERVICE) -instance $(ATHENZ_PROVIDER_SERVICE) -svc-key-file /var/run/athenz/athenz_admin.private.pem -svc-cert-file /var/run/athenz/athenz_admin.cert.pem -attestation-data /tmp/.identitydocument.jwt"
 	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \

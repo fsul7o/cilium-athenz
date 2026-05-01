@@ -33,15 +33,20 @@ envoy:
 authentication:
   enabled: true
   mutual:
+    port: 4250
+    connectTimeout: 5s
     athenz:
       enabled: true
       domain: cilium
       providerService: cilium.identityprovider
+      spiffeTrustDomain: athenz.io
+      spiffeNamespace: default
       zts:
         endpoint: https://athenz-zts-server.athenz:32443/zts/v1
         caSecretName: athenz-cacert
       zms:
         endpoint: https://athenz-zms-server.athenz:32444/zms/v1
+        timeout: 10s
     # spire:
     #   enabled: true
     #   install:

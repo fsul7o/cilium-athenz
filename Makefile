@@ -15,7 +15,7 @@ REMOTE_CILIUM_CLI ?= $(CILIUM_CLI) --context $(CILIUM_REMOTE_CONTEXT)
 KUBECTL_CONTEXT_WRAPPER_DIR := $(abspath hack/bin/kubectl-context)
 LOCAL_KUBECTL_ENV := PATH="$(KUBECTL_CONTEXT_WRAPPER_DIR):$$PATH" REAL_KUBECTL="$(REAL_KUBECTL)" KUBECTL_CONTEXT="$(ATHENZ_LOCAL_CONTEXT)"
 ATHENZ_REPO_URL ?= https://github.com/fsul7o/athenz.git
-ATHENZ_GIT_REF ?= master
+ATHENZ_GIT_REF ?= delegate-copperargos
 
 patch:
 	rsync -av --exclude=".gitkeep" patchfiles/cilium/* cilium
