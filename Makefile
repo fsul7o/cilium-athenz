@@ -50,7 +50,7 @@ deploy-athenz:
 	$(LOCAL_KUBECTL_ENV) $(MAKE) -C athenz-distribution clean-kubernetes-athenz
 	@if [ -n "$(ATHENZ_GIT_REF)" ] || [ "$(ATHENZ_REPO_URL)" != "https://github.com/AthenZ/athenz.git" ]; then \
 		$(LOCAL_KUBECTL_ENV) $(MAKE) -C athenz-distribution load-docker-images; \
-		$(LOCAL_KUBECTL_ENV) $(MAKE) -C athenz-distribution buildx-athenz-zms-server buildx-athenz-zts-server; \
+		$(LOCAL_KUBECTL_ENV) $(MAKE) -C athenz-distribution build-athenz-zms-server build-athenz-zts-server; \
 		$(LOCAL_KUBECTL_ENV) $(MAKE) -C athenz-distribution load-kubernetes-images KIND_CLUSTER_NAME=$(KIND_LOCAL_CLUSTER); \
 	fi
 	$(LOCAL_KUBECTL_ENV) $(MAKE) -C athenz-distribution deploy-kubernetes-athenz KIND_CLUSTER_NAME=$(KIND_LOCAL_CLUSTER)
