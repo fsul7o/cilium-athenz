@@ -5,6 +5,7 @@ LOCAL_CONTEXT ?= kind-cilium-athenz
 LOCAL_KUBECTL ?= $(KUBECTL) --context $(LOCAL_CONTEXT)
 REMOTE_CONTEXT ?= kind-cilium
 REMOTE_KUBECTL ?= $(KUBECTL) --context $(REMOTE_CONTEXT)
+REMOTE_KIND_CLUSTER ?= $(patsubst kind-%,%,$(REMOTE_CONTEXT))
 REMOTE_SECRET_NAMESPACE ?= kube-system
 REMOTE_ATHENZ_CACERT_SECRET ?= athenz-cacert
 REMOTE_ATHENZ_ZTS_DNS_NAME ?= athenz-zts-server.athenz
@@ -20,6 +21,17 @@ CILIUM_AGENT_SERVICEACCOUNT ?= cilium-agent
 CILIUM_OPERATOR_SERVICEACCOUNT ?= cilium-operator
 CILIUM_OPERATOR_SYNC_ROLE ?= cilium_operator_service_sync
 CILIUM_OPERATOR_SYNC_POLICY ?= cilium_operator_service_sync
+TEST_WORKLOAD_FILE ?= manifests/test-workload.yaml
+TEST_NAMESPACE ?= default
+TEST_ECHO_POD ?= echo
+TEST_CLIENT_POD ?= pod-worker
+TEST_ECHO_IMAGE ?= gcr.io/k8s-staging-ingressconformance/echoserver:v20221109-7ee2f3e
+TEST_ROLE ?= demo_clients
+TEST_POLICY ?= demo_clients_to_echo
+TEST_POLICY_ACTION ?= GET
+TEST_POLICY_PORT ?= 3000
+TEST_POLICY_PATH ?= /headers
+ATHENZ_CLI_DEPLOYMENT ?= deployment/athenz-cli
 
 help:
 	@printf '%s\n' \
@@ -28,6 +40,9 @@ help:
 		'' \
 		'Main targets:' \
 		'  setup-athenz-cilium-services  Register cilium-agent/cilium-operator in Athenz' \
+		'  load-test-workload-image     Pull/load the echo test image into the remote kind cluster' \
+		'  deploy-test-workload         Deploy demo workload and seed Athenz role/policy' \
+		'  clean-test-workload          Remove demo workload from the remote cluster' \
 		'  sync-remote-athenz-cacert     Copy athenz-cacert Secret into the remote cluster' \
 		'  sync-kind-athenz-hostaliases  Update kind-custom.yaml hostAliases for athenz-zts-server.athenz/athenz-zms-server.athenz'
 
@@ -189,3 +204,112 @@ setup-athenz-cilium-services:
 	$(MAKE) register-athenz-service check-register-athenz-service REGISTER_SERVICEACCOUNT=$(CILIUM_AGENT_SERVICEACCOUNT)
 	$(MAKE) register-athenz-service check-register-athenz-service REGISTER_SERVICEACCOUNT=$(CILIUM_OPERATOR_SERVICEACCOUNT)
 	$(MAKE) configure-cilium-operator-zms-policy
+
+load-test-workload-image:
+	@docker image inspect "$(TEST_ECHO_IMAGE)" >/dev/null 2>&1 || docker pull "$(TEST_ECHO_IMAGE)"
+	kind load docker-image "$(TEST_ECHO_IMAGE)" --name "$(REMOTE_KIND_CLUSTER)"
+
+apply-test-workload: load-test-workload-image
+	@test -f "$(TEST_WORKLOAD_FILE)" || { echo "missing $(TEST_WORKLOAD_FILE)"; exit 1; }
+	$(REMOTE_KUBECTL) apply -f "$(TEST_WORKLOAD_FILE)"
+
+wait-test-workload:
+	$(REMOTE_KUBECTL) -n $(TEST_NAMESPACE) wait --for=condition=Ready pod/$(TEST_ECHO_POD) pod/$(TEST_CLIENT_POD) --timeout=180s
+	@for pod in "$(TEST_ECHO_POD)" "$(TEST_CLIENT_POD)"; do \
+		i=0; \
+		while true; do \
+			identity_id="$$($(REMOTE_KUBECTL) -n $(TEST_NAMESPACE) get ciliumendpoint $$pod -o jsonpath='{.status.identity.id}' 2>/dev/null || true)"; \
+			if [ -n "$$identity_id" ]; then \
+				echo "$$pod cilium identity=$$identity_id"; \
+				break; \
+			fi; \
+			i=$$((i + 1)); \
+			if [ $$i -ge 60 ]; then \
+				echo "timed out waiting for cilium identity on $$pod"; \
+				exit 1; \
+			fi; \
+			sleep 2; \
+		done; \
+	done
+
+configure-test-athenz-policy:
+	@src_id="$$($(REMOTE_KUBECTL) -n $(TEST_NAMESPACE) get ciliumendpoint $(TEST_CLIENT_POD) -o jsonpath='{.status.identity.id}')"; \
+	dst_id="$$($(REMOTE_KUBECTL) -n $(TEST_NAMESPACE) get ciliumendpoint $(TEST_ECHO_POD) -o jsonpath='{.status.identity.id}')"; \
+	test -n "$$src_id" || { echo 'missing source cilium identity'; exit 1; }; \
+	test -n "$$dst_id" || { echo 'missing destination cilium identity'; exit 1; }; \
+	resource="$(ATHENZ_SERVICE_DOMAIN):service.$$dst_id:$(TEST_POLICY_PORT)$(TEST_POLICY_PATH)"; \
+	echo "configure Athenz test policy: cilium.$$src_id -> cilium.$$dst_id"; \
+	for service_id in "$$src_id" "$$dst_id"; do \
+		i=0; \
+		while true; do \
+			if $(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+				curl -sf \
+					--key /var/run/athenz/athenz_admin.private.pem \
+					--cert /var/run/athenz/athenz_admin.cert.pem \
+					"https://athenz-zms-server.athenz:4443/zms/v1/domain/$(ATHENZ_SERVICE_DOMAIN)/service/$$service_id" >/dev/null; then \
+				break; \
+			fi; \
+			i=$$((i + 1)); \
+			if [ $$i -ge 60 ]; then \
+				echo "timed out waiting for Athenz service $(ATHENZ_SERVICE_DOMAIN).$$service_id"; \
+				exit 1; \
+			fi; \
+			sleep 2; \
+		done; \
+	done; \
+	$(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			delete-policy \
+			$(TEST_POLICY) || :; \
+	$(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			add-regular-role \
+			$(TEST_ROLE) \
+			$(ATHENZ_SERVICE_DOMAIN).$$src_id || :; \
+	$(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			add-member \
+			$(TEST_ROLE) \
+			$(ATHENZ_SERVICE_DOMAIN).$$src_id || :; \
+	$(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			add-policy \
+			$(TEST_POLICY) \
+			grant $(TEST_POLICY_ACTION) to $(TEST_ROLE) on "$$resource" || :; \
+	$(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			add-assertion \
+			$(TEST_POLICY) \
+			grant $(TEST_POLICY_ACTION) to $(TEST_ROLE) on "$$resource" || :; \
+	echo "Athenz role=$(TEST_ROLE) policy=$(TEST_POLICY)"; \
+	echo "  member: $(ATHENZ_SERVICE_DOMAIN).$$src_id"; \
+	echo "  resource: $$resource"
+
+deploy-test-workload: apply-test-workload wait-test-workload configure-test-athenz-policy
+	@echo "test workload deployed"; \
+	echo "verify with:"; \
+	echo "  $(REMOTE_KUBECTL) -n $(TEST_NAMESPACE) exec $(TEST_CLIENT_POD) -- curl -s -o /dev/null -w '%{http_code}\n' http://echo:$(TEST_POLICY_PORT)/headers"
+
+clean-test-workload:
+	@test -f "$(TEST_WORKLOAD_FILE)" || { echo "missing $(TEST_WORKLOAD_FILE)"; exit 1; }
+	$(REMOTE_KUBECTL) delete -f "$(TEST_WORKLOAD_FILE)" --ignore-not-found

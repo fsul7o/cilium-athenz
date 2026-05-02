@@ -21,7 +21,7 @@ patch:
 	rsync -av --exclude=".gitkeep" patchfiles/cilium/* cilium
 	rsync -av --exclude=".gitkeep" patchfiles/athenz-distribution/* athenz-distribution
 
-.PHONY: patch kind-setup kind-prepare-identityprovider kind-delete deploy-athenz clean-athenz prepare-cilium-athenz deploy-cilium clean-cilium deploy-identityprovider clean-identityprovider
+.PHONY: patch kind-setup kind-prepare-identityprovider kind-delete deploy-athenz clean-athenz prepare-cilium-athenz deploy-cilium clean-cilium deploy-identityprovider clean-identityprovider deploy-test-workload clean-test-workload
 
 kind-setup:
 	$(KIND) create cluster --name $(KIND_LOCAL_CLUSTER)
@@ -80,6 +80,16 @@ deploy-identityprovider:
 
 cleanup-identityprovider:
 	$(MAKE) -C athenz-identityprovider clean-athenz-identityprovider LOCAL_CONTEXT=$(ATHENZ_LOCAL_CONTEXT) REMOTE_CONTEXT=$(CILIUM_REMOTE_CONTEXT)
+
+deploy-test-workload:
+	$(MAKE) -C athenz-cilium deploy-test-workload \
+		LOCAL_CONTEXT=$(ATHENZ_LOCAL_CONTEXT) \
+		REMOTE_CONTEXT=$(CILIUM_REMOTE_CONTEXT)
+
+clean-test-workload:
+	$(MAKE) -C athenz-cilium clean-test-workload \
+		LOCAL_CONTEXT=$(ATHENZ_LOCAL_CONTEXT) \
+		REMOTE_CONTEXT=$(CILIUM_REMOTE_CONTEXT)
 
 kind-cleanup:
 	$(KIND) delete cluster --name $(KIND_LOCAL_CLUSTER)

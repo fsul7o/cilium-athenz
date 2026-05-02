@@ -13,6 +13,8 @@ hostAliases:
       - athenz-zms-server.athenz
 
 operator:
+  identityGCInterval: 30s
+  identityHeartbeatTimeout: 1m
   nodeSelector:
     kubernetes.io/os: linux
     kubernetes.io/hostname: cilium-worker
@@ -47,6 +49,8 @@ authentication:
       zms:
         endpoint: https://athenz-zms-server.athenz:32444/zms/v1
         timeout: 10s
+      policySync:
+        enabled: true
     # spire:
     #   enabled: true
     #   install:
