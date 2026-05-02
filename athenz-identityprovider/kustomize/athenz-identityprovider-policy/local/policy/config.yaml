@@ -1,0 +1,55 @@
+config:
+  debug: true
+  constraints:
+    athenz:
+      domain:
+        name: "cilium"
+        prefix: ""
+        suffix: ""
+      identityprovider:
+        service: cilium.identityprovider
+    cert:
+      expiry:
+        defaultminutes: 43200
+        maxminutes: 43200
+      refresh: true
+    keys:
+      jwks:
+        url: http://127.0.0.1:8001/openid/v1/jwks
+        cacert: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        force_cache_duration_seconds: 3600
+      apinodes:
+        url: http://127.0.0.1:8001/api/v1/nodes
+      static: |
+        -----BEGIN PUBLIC KEY-----
+        MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAohdm/2fdZ0ZJy8mT802h
+        Jbpw3oDSO4IWcFBXUXvEAdKAnCKh59kq/dZhr3QIXAT+rYg6maxGhHMeqkTBpvIX
+        SyJmea0Ut02nHBBQqQYpQr67ar7AAVleKYGb9F29dGoIFa1+TJGomtUTv3e4KNGB
+        Ld7nLWuhNDnw5o+sfcq5iYuuQJ9O7b0g09R1qM7LRg7aopp9l90YN9Q9jd2Y/MRH
+        XOqVlyKf3/3uD5SSBtO6YPWQs5yCN1dtf/b3gPdcyPdqRvPkpDfzUPUZF/MAAtHz
+        4oWoeRLA+uKz2trTwKWEYbZivAdrj3WFvnPq06gTScVZox9qRr/dl2bYSzuJImn6
+        NQIDAQAB
+        -----END PUBLIC KEY-----
+    system:
+      authz:
+        keys:
+          jwks:
+            url: http://127.0.0.1:8002/openid/v1/jwks
+          apinodes:
+            url: http://127.0.0.1:8002/api/v1/nodes
+    kubernetes:
+      namespaces:
+        - kube-system
+      serviceaccount:
+        names:
+          - cilium-agent
+          - cilium-operator
+        token:
+          issuers:
+            - https://kubernetes.default.svc
+            - https://kubernetes.default.svc.cluster.local
+          audiences:
+            - https://kubernetes.default.svc
+            - https://kubernetes.default.svc.cluster.local
+          issuer: https://kubernetes.default.svc.cluster.local
+          audience: https://kubernetes.default.svc
