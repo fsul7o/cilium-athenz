@@ -31,6 +31,24 @@ TEST_POLICY ?= demo_clients_to_echo
 TEST_POLICY_ACTION ?= GET
 TEST_POLICY_PORT ?= 3000
 TEST_POLICY_PATH ?= /headers
+BENCHMARK_WORKLOAD_FILE ?= manifests/benchmark-workload.yaml
+BENCH_NAMESPACE ?= default
+BENCH_VEGETA_DEPLOYMENT ?= vegeta
+BENCH_VEGETA_LABEL ?= app=vegeta
+BENCH_VEGETA_IMAGE ?= ghcr.io/ctyano/docker-vegeta:latest
+BENCH_PLAIN_ECHO_POD ?= echo-plain
+BENCH_AUTH_ECHO_POD ?= echo-auth
+BENCH_PLAIN_SERVICE ?= echo-plain
+BENCH_AUTH_SERVICE ?= echo-auth
+BENCH_ROLE ?= benchmark_clients
+BENCH_POLICY ?= benchmark_clients_to_echo_auth
+BENCH_POLICY_ACTION ?= GET
+BENCH_POLICY_PORT ?= 3000
+BENCH_POLICY_PATH ?= /headers
+BENCH_RATE ?= 100
+BENCH_WORKERS ?= 100
+BENCH_DURATION ?= 30s
+BENCH_KEEPALIVE ?= false
 ATHENZ_CLI_DEPLOYMENT ?= deployment/athenz-cli
 
 help:
@@ -42,6 +60,9 @@ help:
 		'  setup-athenz-cilium-services  Register cilium-agent/cilium-operator in Athenz' \
 		'  load-test-workload-image     Pull/load the echo test image into the remote kind cluster' \
 		'  deploy-test-workload         Deploy demo workload and seed Athenz role/policy' \
+		'  deploy-benchmark-workload    Deploy vegeta plus plain/auth benchmark services' \
+		'  run-benchmark                Run plain then auth vegeta benchmarks' \
+		'  clean-benchmark-workload     Remove benchmark workload from the remote cluster' \
 		'  clean-test-workload          Remove demo workload from the remote cluster' \
 		'  sync-remote-athenz-cacert     Copy athenz-cacert Secret into the remote cluster' \
 		'  sync-kind-athenz-hostaliases  Update kind-custom.yaml hostAliases for athenz-zts-server.athenz/athenz-zms-server.athenz'
@@ -209,9 +230,19 @@ load-test-workload-image:
 	@docker image inspect "$(TEST_ECHO_IMAGE)" >/dev/null 2>&1 || docker pull "$(TEST_ECHO_IMAGE)"
 	kind load docker-image "$(TEST_ECHO_IMAGE)" --name "$(REMOTE_KIND_CLUSTER)"
 
+load-benchmark-workload-images:
+	@docker image inspect "$(TEST_ECHO_IMAGE)" >/dev/null 2>&1 || docker pull "$(TEST_ECHO_IMAGE)"
+	@docker image inspect "$(BENCH_VEGETA_IMAGE)" >/dev/null 2>&1 || docker pull "$(BENCH_VEGETA_IMAGE)"
+	kind load docker-image "$(TEST_ECHO_IMAGE)" --name "$(REMOTE_KIND_CLUSTER)"
+	kind load docker-image "$(BENCH_VEGETA_IMAGE)" --name "$(REMOTE_KIND_CLUSTER)"
+
 apply-test-workload: load-test-workload-image
 	@test -f "$(TEST_WORKLOAD_FILE)" || { echo "missing $(TEST_WORKLOAD_FILE)"; exit 1; }
 	$(REMOTE_KUBECTL) apply -f "$(TEST_WORKLOAD_FILE)"
+
+apply-benchmark-workload: load-benchmark-workload-images
+	@test -f "$(BENCHMARK_WORKLOAD_FILE)" || { echo "missing $(BENCHMARK_WORKLOAD_FILE)"; exit 1; }
+	$(REMOTE_KUBECTL) apply -f "$(BENCHMARK_WORKLOAD_FILE)"
 
 wait-test-workload:
 	$(REMOTE_KUBECTL) -n $(TEST_NAMESPACE) wait --for=condition=Ready pod/$(TEST_ECHO_POD) pod/$(TEST_CLIENT_POD) --timeout=180s
@@ -219,6 +250,28 @@ wait-test-workload:
 		i=0; \
 		while true; do \
 			identity_id="$$($(REMOTE_KUBECTL) -n $(TEST_NAMESPACE) get ciliumendpoint $$pod -o jsonpath='{.status.identity.id}' 2>/dev/null || true)"; \
+			if [ -n "$$identity_id" ]; then \
+				echo "$$pod cilium identity=$$identity_id"; \
+				break; \
+			fi; \
+			i=$$((i + 1)); \
+			if [ $$i -ge 60 ]; then \
+				echo "timed out waiting for cilium identity on $$pod"; \
+				exit 1; \
+			fi; \
+			sleep 2; \
+		done; \
+	done
+
+wait-benchmark-workload:
+	$(REMOTE_KUBECTL) -n $(BENCH_NAMESPACE) wait --for=condition=Ready pod/$(BENCH_PLAIN_ECHO_POD) pod/$(BENCH_AUTH_ECHO_POD) --timeout=180s
+	$(REMOTE_KUBECTL) -n $(BENCH_NAMESPACE) rollout status deployment/$(BENCH_VEGETA_DEPLOYMENT) --timeout=180s
+	@vegeta_pod="$$( $(REMOTE_KUBECTL) -n $(BENCH_NAMESPACE) get pod -l $(BENCH_VEGETA_LABEL) -o jsonpath='{.items[0].metadata.name}' )"; \
+	test -n "$$vegeta_pod" || { echo "missing vegeta pod"; exit 1; }; \
+	for pod in "$(BENCH_PLAIN_ECHO_POD)" "$(BENCH_AUTH_ECHO_POD)" "$$vegeta_pod"; do \
+		i=0; \
+		while true; do \
+			identity_id="$$($(REMOTE_KUBECTL) -n $(BENCH_NAMESPACE) get ciliumendpoint $$pod -o jsonpath='{.status.identity.id}' 2>/dev/null || true)"; \
 			if [ -n "$$identity_id" ]; then \
 				echo "$$pod cilium identity=$$identity_id"; \
 				break; \
@@ -305,11 +358,107 @@ configure-test-athenz-policy:
 	echo "  member: $(ATHENZ_SERVICE_DOMAIN).$$src_id"; \
 	echo "  resource: $$resource"
 
+configure-benchmark-athenz-policy:
+	@vegeta_pod="$$( $(REMOTE_KUBECTL) -n $(BENCH_NAMESPACE) get pod -l $(BENCH_VEGETA_LABEL) -o jsonpath='{.items[0].metadata.name}' )"; \
+	test -n "$$vegeta_pod" || { echo "missing vegeta pod"; exit 1; }; \
+	src_id="$$($(REMOTE_KUBECTL) -n $(BENCH_NAMESPACE) get ciliumendpoint $$vegeta_pod -o jsonpath='{.status.identity.id}')"; \
+	dst_id="$$($(REMOTE_KUBECTL) -n $(BENCH_NAMESPACE) get ciliumendpoint $(BENCH_AUTH_ECHO_POD) -o jsonpath='{.status.identity.id}')"; \
+	test -n "$$src_id" || { echo 'missing benchmark source cilium identity'; exit 1; }; \
+	test -n "$$dst_id" || { echo 'missing benchmark destination cilium identity'; exit 1; }; \
+	resource="$(ATHENZ_SERVICE_DOMAIN):service.$$dst_id:$(BENCH_POLICY_PORT)$(BENCH_POLICY_PATH)"; \
+	echo "configure Athenz benchmark policy: cilium.$$src_id -> cilium.$$dst_id"; \
+	for service_id in "$$src_id" "$$dst_id"; do \
+		i=0; \
+		while true; do \
+			if $(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+				curl -sf \
+					--key /var/run/athenz/athenz_admin.private.pem \
+					--cert /var/run/athenz/athenz_admin.cert.pem \
+					"https://athenz-zms-server.athenz:4443/zms/v1/domain/$(ATHENZ_SERVICE_DOMAIN)/service/$$service_id" >/dev/null; then \
+				break; \
+			fi; \
+			i=$$((i + 1)); \
+			if [ $$i -ge 60 ]; then \
+				echo "timed out waiting for Athenz service $(ATHENZ_SERVICE_DOMAIN).$$service_id"; \
+				exit 1; \
+			fi; \
+			sleep 2; \
+		done; \
+	done; \
+	$(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			delete-policy \
+			$(BENCH_POLICY) || :; \
+	$(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			add-regular-role \
+			$(BENCH_ROLE) \
+			$(ATHENZ_SERVICE_DOMAIN).$$src_id || :; \
+	$(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			add-member \
+			$(BENCH_ROLE) \
+			$(ATHENZ_SERVICE_DOMAIN).$$src_id || :; \
+	$(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			add-policy \
+			$(BENCH_POLICY) \
+			grant $(BENCH_POLICY_ACTION) to $(BENCH_ROLE) on "$$resource" || :; \
+	$(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			add-assertion \
+			$(BENCH_POLICY) \
+			grant $(BENCH_POLICY_ACTION) to $(BENCH_ROLE) on "$$resource" || :; \
+	echo "Athenz role=$(BENCH_ROLE) policy=$(BENCH_POLICY)"; \
+	echo "  member: $(ATHENZ_SERVICE_DOMAIN).$$src_id"; \
+	echo "  resource: $$resource"
+
 deploy-test-workload: apply-test-workload wait-test-workload configure-test-athenz-policy
 	@echo "test workload deployed"; \
 	echo "verify with:"; \
 	echo "  $(REMOTE_KUBECTL) -n $(TEST_NAMESPACE) exec $(TEST_CLIENT_POD) -- curl -s -o /dev/null -w '%{http_code}\n' http://echo:$(TEST_POLICY_PORT)/headers"
 
+deploy-benchmark-workload: apply-benchmark-workload wait-benchmark-workload configure-benchmark-athenz-policy
+	@echo "benchmark workload deployed"; \
+	echo "run with:"; \
+	echo "  $(MAKE) -C athenz-cilium run-benchmark LOCAL_CONTEXT=$(LOCAL_CONTEXT) REMOTE_CONTEXT=$(REMOTE_CONTEXT)"
+
+run-benchmark:
+	@printf '\n===== benchmark: plain =====\n'; \
+	$(REMOTE_KUBECTL) -n $(BENCH_NAMESPACE) exec deployment/$(BENCH_VEGETA_DEPLOYMENT) -- /bin/sh -c \
+		"echo 'GET http://$(BENCH_PLAIN_SERVICE):$(BENCH_POLICY_PORT)$(BENCH_POLICY_PATH)' \
+		| vegeta attack -workers=$(BENCH_WORKERS) -rate=$(BENCH_RATE) -duration=$(BENCH_DURATION) -keepalive $(BENCH_KEEPALIVE) \
+		| tee /data/plain.bin | vegeta report"; \
+	printf '\n===== benchmark: auth =====\n'; \
+	$(REMOTE_KUBECTL) -n $(BENCH_NAMESPACE) exec deployment/$(BENCH_VEGETA_DEPLOYMENT) -- /bin/sh -c \
+		"echo 'GET http://$(BENCH_AUTH_SERVICE):$(BENCH_POLICY_PORT)$(BENCH_POLICY_PATH)' \
+		| vegeta attack -workers=$(BENCH_WORKERS) -rate=$(BENCH_RATE) -duration=$(BENCH_DURATION) -keepalive $(BENCH_KEEPALIVE) \
+		| tee /data/auth.bin | vegeta report"
+
 clean-test-workload:
 	@test -f "$(TEST_WORKLOAD_FILE)" || { echo "missing $(TEST_WORKLOAD_FILE)"; exit 1; }
 	$(REMOTE_KUBECTL) delete -f "$(TEST_WORKLOAD_FILE)" --ignore-not-found
+
+clean-benchmark-workload:
+	@test -f "$(BENCHMARK_WORKLOAD_FILE)" || { echo "missing $(BENCHMARK_WORKLOAD_FILE)"; exit 1; }
+	$(REMOTE_KUBECTL) delete -f "$(BENCHMARK_WORKLOAD_FILE)" --ignore-not-found

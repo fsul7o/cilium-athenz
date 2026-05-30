@@ -12,6 +12,10 @@ REAL_KUBECTL ?= $(shell command -v kubectl 2>/dev/null || printf '%s' kubectl)
 LOCAL_KUBECTL ?= $(KUBECTL) --context $(ATHENZ_LOCAL_CONTEXT)
 REMOTE_KUBECTL ?= $(KUBECTL) --context $(CILIUM_REMOTE_CONTEXT)
 REMOTE_CILIUM_CLI ?= $(CILIUM_CLI) --context $(CILIUM_REMOTE_CONTEXT)
+BENCH_RATE ?= 100
+BENCH_WORKERS ?= 100
+BENCH_DURATION ?= 30s
+BENCH_KEEPALIVE ?= false
 KUBECTL_CONTEXT_WRAPPER_DIR := $(abspath hack/bin/kubectl-context)
 LOCAL_KUBECTL_ENV := PATH="$(KUBECTL_CONTEXT_WRAPPER_DIR):$$PATH" REAL_KUBECTL="$(REAL_KUBECTL)" KUBECTL_CONTEXT="$(ATHENZ_LOCAL_CONTEXT)"
 ATHENZ_REPO_URL ?= https://github.com/fsul7o/athenz.git
@@ -21,7 +25,7 @@ patch:
 	rsync -av --exclude=".gitkeep" patchfiles/cilium/* cilium
 	rsync -av --exclude=".gitkeep" patchfiles/athenz-distribution/* athenz-distribution
 
-.PHONY: patch kind-setup kind-prepare-identityprovider kind-delete deploy-athenz clean-athenz prepare-cilium-athenz deploy-cilium clean-cilium deploy-identityprovider clean-identityprovider deploy-test-workload clean-test-workload
+.PHONY: patch kind-setup kind-prepare-identityprovider kind-delete deploy-athenz clean-athenz prepare-cilium-athenz deploy-cilium clean-cilium deploy-identityprovider clean-identityprovider deploy-test-workload clean-test-workload deploy-benchmark-workload run-benchmark clean-benchmark-workload
 
 kind-setup:
 	$(KIND) create cluster --name $(KIND_LOCAL_CLUSTER)
@@ -88,6 +92,25 @@ deploy-test-workload:
 
 clean-test-workload:
 	$(MAKE) -C athenz-cilium clean-test-workload \
+		LOCAL_CONTEXT=$(ATHENZ_LOCAL_CONTEXT) \
+		REMOTE_CONTEXT=$(CILIUM_REMOTE_CONTEXT)
+
+deploy-benchmark-workload:
+	$(MAKE) -C athenz-cilium deploy-benchmark-workload \
+		LOCAL_CONTEXT=$(ATHENZ_LOCAL_CONTEXT) \
+		REMOTE_CONTEXT=$(CILIUM_REMOTE_CONTEXT)
+
+run-benchmark:
+	$(MAKE) -C athenz-cilium run-benchmark \
+		LOCAL_CONTEXT=$(ATHENZ_LOCAL_CONTEXT) \
+		REMOTE_CONTEXT=$(CILIUM_REMOTE_CONTEXT) \
+		BENCH_RATE="$(BENCH_RATE)" \
+		BENCH_WORKERS="$(BENCH_WORKERS)" \
+		BENCH_DURATION="$(BENCH_DURATION)" \
+		BENCH_KEEPALIVE="$(BENCH_KEEPALIVE)"
+
+clean-benchmark-workload:
+	$(MAKE) -C athenz-cilium clean-benchmark-workload \
 		LOCAL_CONTEXT=$(ATHENZ_LOCAL_CONTEXT) \
 		REMOTE_CONTEXT=$(CILIUM_REMOTE_CONTEXT)
 
