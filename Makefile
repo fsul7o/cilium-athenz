@@ -75,6 +75,7 @@ deploy-cilium: prepare-cilium-athenz
 
 	$(MAKE) -C cilium kind-image KIND_CLUSTER_NAME=$(KIND_CILIUM_CLUSTER)
 	$(MAKE) -C cilium kind-install-cilium KIND_CLUSTER_NAME=$(KIND_CILIUM_CLUSTER) CILIUM_CLI="$(CILIUM_CLUSTER_CLI)"
+	$(CILIUM_CLUSTER_CLI) config set debug true
 
 clean-cilium:
 	$(MAKE) -C cilium kind-uninstall-cilium KIND_CLUSTER_NAME=$(KIND_CILIUM_CLUSTER) CILIUM_CLI="$(CILIUM_CLUSTER_CLI)"
