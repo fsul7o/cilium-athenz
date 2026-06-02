@@ -1,17 +1,17 @@
 SHELL := /bin/sh
 
 KUBECTL ?= kubectl
-LOCAL_CONTEXT ?= kind-cilium-athenz
-LOCAL_KUBECTL ?= $(KUBECTL) --context $(LOCAL_CONTEXT)
-REMOTE_CONTEXT ?= kind-cilium
-REMOTE_KUBECTL ?= $(KUBECTL) --context $(REMOTE_CONTEXT)
-REMOTE_KIND_CLUSTER ?= $(patsubst kind-%,%,$(REMOTE_CONTEXT))
-REMOTE_SECRET_NAMESPACE ?= kube-system
-REMOTE_ATHENZ_CACERT_SECRET ?= athenz-cacert
-REMOTE_ATHENZ_ZTS_DNS_NAME ?= athenz-zts-server.athenz
-REMOTE_ATHENZ_ZMS_DNS_NAME ?= athenz-zms-server.athenz
+ATHENZ_CONTEXT ?= kind-cilium-athenz
+ATHENZ_KUBECTL ?= $(KUBECTL) --context $(ATHENZ_CONTEXT)
+CILIUM_CONTEXT ?= kind-cilium
+CILIUM_KUBECTL ?= $(KUBECTL) --context $(CILIUM_CONTEXT)
+CILIUM_KIND_CLUSTER ?= $(patsubst kind-%,%,$(CILIUM_CONTEXT))
+CILIUM_SECRET_NAMESPACE ?= kube-system
+ATHENZ_CACERT_SECRET ?= athenz-cacert
+ATHENZ_ZTS_DNS_NAME ?= athenz-zts-server.athenz
+ATHENZ_ZMS_DNS_NAME ?= athenz-zms-server.athenz
 KIND_CUSTOM_VALUES_FILE ?= ../cilium/contrib/testing/kind-custom.yaml
-LOCAL_ATHENZ_ENDPOINT_IP ?=
+ATHENZ_ENDPOINT_IP ?=
 
 ATHENZ_SERVICE_DOMAIN ?= cilium
 REGISTER_PROVIDER_SERVICE ?= cilium.identityprovider
@@ -58,34 +58,34 @@ help:
 		'' \
 		'Main targets:' \
 		'  setup-athenz-cilium-services  Register cilium-agent/cilium-operator in Athenz' \
-		'  load-test-workload-image     Pull/load the echo test image into the remote kind cluster' \
+		'  load-test-workload-image     Pull/load the echo test image into the cilium kind cluster' \
 		'  deploy-test-workload         Deploy demo workload and seed Athenz role/policy' \
 		'  deploy-benchmark-workload    Deploy vegeta plus plain/auth benchmark services' \
 		'  run-benchmark                Run plain then auth vegeta benchmarks' \
-		'  clean-benchmark-workload     Remove benchmark workload from the remote cluster' \
-		'  clean-test-workload          Remove demo workload from the remote cluster' \
-		'  sync-remote-athenz-cacert     Copy athenz-cacert Secret into the remote cluster' \
+		'  clean-benchmark-workload     Remove benchmark workload from the cilium cluster' \
+		'  clean-test-workload          Remove demo workload from the cilium cluster' \
+		'  sync-cilium-athenz-cacert     Copy athenz-cacert Secret into the cilium cluster' \
 		'  sync-kind-athenz-hostaliases  Update kind-custom.yaml hostAliases for athenz-zts-server.athenz/athenz-zms-server.athenz'
 
-sync-remote-athenz-cacert:
+sync-cilium-athenz-cacert:
 	@tmp_ca="$$(mktemp /tmp/athenz-cacert.XXXXXX.pem)"; \
-	$(LOCAL_KUBECTL) -n athenz get secret $(REMOTE_ATHENZ_CACERT_SECRET) -o jsonpath='{.data.ca\.cert\.pem}' \
+	$(ATHENZ_KUBECTL) -n athenz get secret $(ATHENZ_CACERT_SECRET) -o jsonpath='{.data.ca\.cert\.pem}' \
 		| openssl base64 -d -A > "$$tmp_ca"; \
-	$(REMOTE_KUBECTL) -n $(REMOTE_SECRET_NAMESPACE) create secret generic $(REMOTE_ATHENZ_CACERT_SECRET) \
+	$(CILIUM_KUBECTL) -n $(CILIUM_SECRET_NAMESPACE) create secret generic $(ATHENZ_CACERT_SECRET) \
 		--from-file=ca.cert.pem="$$tmp_ca" \
-		--dry-run=client -o yaml | $(REMOTE_KUBECTL) apply -f -; \
+		--dry-run=client -o yaml | $(CILIUM_KUBECTL) apply -f -; \
 	rm -f "$$tmp_ca"
 
 sync-kind-athenz-hostaliases:
-	@test -n "$(LOCAL_ATHENZ_ENDPOINT_IP)" || { echo 'missing LOCAL_ATHENZ_ENDPOINT_IP'; exit 1; }
+	@test -n "$(ATHENZ_ENDPOINT_IP)" || { echo 'missing ATHENZ_ENDPOINT_IP'; exit 1; }
 	@test -f "$(KIND_CUSTOM_VALUES_FILE)" || { echo "missing $(KIND_CUSTOM_VALUES_FILE)"; exit 1; }
-	@perl -0pi -e 's/(hostAliases:\n(?:[^\n]*\n)*?\s*- ip: )"[^"]*"\n(\s*hostnames:\n\s*- $(REMOTE_ATHENZ_ZTS_DNS_NAME)\n\s*- $(REMOTE_ATHENZ_ZMS_DNS_NAME))/$${1}"$(LOCAL_ATHENZ_ENDPOINT_IP)"\n$${2}/g' "$(KIND_CUSTOM_VALUES_FILE)"
+	@perl -0pi -e 's/(hostAliases:\n(?:[^\n]*\n)*?\s*- ip: )"[^"]*"\n(\s*hostnames:\n\s*- $(ATHENZ_ZTS_DNS_NAME)\n\s*- $(ATHENZ_ZMS_DNS_NAME))/$${1}"$(ATHENZ_ENDPOINT_IP)"\n$${2}/g' "$(KIND_CUSTOM_VALUES_FILE)"
 
 sync-kind-athenz-zts-hostaliases: sync-kind-athenz-hostaliases
 
 register-athenz-service:
 	@test -n "$(REGISTER_SERVICEACCOUNT)" || { echo 'missing REGISTER_SERVICEACCOUNT'; exit 1; }
-	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
+	$(ATHENZ_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		curl \
 			-sS \
 			-d"{\"name\":\"$(ATHENZ_SERVICE_DOMAIN)\",\"adminUsers\":[\"user.athenz_admin\"]}" \
@@ -93,7 +93,7 @@ register-athenz-service:
 			--key /var/run/athenz/athenz_admin.private.pem \
 			--cert /var/run/athenz/athenz_admin.cert.pem \
 			"https://athenz-zms-server.athenz:4443/zms/v1/domain" || :
-	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
+	$(ATHENZ_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -103,7 +103,7 @@ register-athenz-service:
 			instance_provider \
 			provider="$(REGISTER_PROVIDER_SERVICE)" \
 			dnssuffix="$(DNS_SUFFIX)"
-	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
+	$(ATHENZ_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -113,7 +113,7 @@ register-athenz-service:
 			instance_provider \
 			provider="$(REGISTER_PROVIDER_SERVICE)" \
 			dnssuffix="$(DNS_SUFFIX)"
-	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
+	$(ATHENZ_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		curl \
 			-sS \
 			-X PUT \
@@ -122,7 +122,7 @@ register-athenz-service:
 			--key /var/run/athenz/athenz_admin.private.pem \
 			--cert /var/run/athenz/athenz_admin.cert.pem \
 			"https://athenz-zms-server.athenz:4443/zms/v1/domain/$(ATHENZ_SERVICE_DOMAIN)/service/$(REGISTER_SERVICEACCOUNT)"
-	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
+	$(ATHENZ_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -132,7 +132,7 @@ register-athenz-service:
 			identity_provisioning \
 			instanceprovider="sys.auth.zts" \
 			service="$(REGISTER_SERVICEACCOUNT)"
-	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
+	$(ATHENZ_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -144,7 +144,7 @@ register-athenz-service:
 			service="$(REGISTER_SERVICEACCOUNT)"
 
 configure-cilium-operator-zms-policy:
-	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
+	$(ATHENZ_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -153,7 +153,7 @@ configure-cilium-operator-zms-policy:
 			add-regular-role \
 			$(CILIUM_OPERATOR_SYNC_ROLE) \
 			$(ATHENZ_SERVICE_DOMAIN).$(CILIUM_OPERATOR_SERVICEACCOUNT) || :
-	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
+	$(ATHENZ_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -162,7 +162,7 @@ configure-cilium-operator-zms-policy:
 			add-member \
 			$(CILIUM_OPERATOR_SYNC_ROLE) \
 			$(ATHENZ_SERVICE_DOMAIN).$(CILIUM_OPERATOR_SERVICEACCOUNT) || :
-	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
+	$(ATHENZ_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -171,7 +171,7 @@ configure-cilium-operator-zms-policy:
 			add-policy \
 			$(CILIUM_OPERATOR_SYNC_POLICY) \
 			grant update to $(CILIUM_OPERATOR_SYNC_ROLE) on '$(ATHENZ_SERVICE_DOMAIN):service.*' || :
-	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
+	$(ATHENZ_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -180,7 +180,7 @@ configure-cilium-operator-zms-policy:
 			add-assertion \
 			$(CILIUM_OPERATOR_SYNC_POLICY) \
 			grant update to $(CILIUM_OPERATOR_SYNC_ROLE) on '$(ATHENZ_SERVICE_DOMAIN):service.*' || :
-	$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
+	$(ATHENZ_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -197,12 +197,12 @@ check-register-athenz-service:
 	i=0; \
 	while true; do \
 		printf "\n***** Waiting for Athenz service $(REGISTER_SERVICEACCOUNT) ($$(( $$i * $${SLEEP_SECONDS} ))s/$${WAITING_THRESHOLD}s) *****\n"; \
-		if $(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
+		if $(ATHENZ_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 			curl -sf \
 				-H"Content-type: application/json" \
 				-H"X-Auth-Request-Preferred-Username: user.athenz_admin" \
 				"https://athenz-zts-server.athenz:4443/zts/v1/domain/$(ATHENZ_SERVICE_DOMAIN)/service/$(REGISTER_SERVICEACCOUNT)" >/dev/null \
-			&& $(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
+			&& $(ATHENZ_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 				curl -sf \
 					-H"Content-type: application/json" \
 					-H"X-Auth-Request-Preferred-Username: user.athenz_admin" \
@@ -215,7 +215,7 @@ check-register-athenz-service:
 		i=$$(( i + 1 )); \
 		if [ $$i -eq $$(( $${WAITING_THRESHOLD} / $${SLEEP_SECONDS} )) ]; then \
 			printf "\n\n** Waiting ($$(( $$i * $${SLEEP_SECONDS} ))s) reached threshold ($${WAITING_THRESHOLD}s) **\n\n"; \
-			$(LOCAL_KUBECTL) -n athenz exec deployment/athenz-cli -- \
+			$(ATHENZ_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 				zms-cli -z https://athenz-zms-server.athenz:4443/zms/v1 -key /var/run/athenz/athenz_admin.private.pem -cert /var/run/athenz/athenz_admin.cert.pem -d $(ATHENZ_SERVICE_DOMAIN) show-domain || :; \
 			exit 1; \
 		fi; \
@@ -228,28 +228,28 @@ setup-athenz-cilium-services:
 
 load-test-workload-image:
 	@docker image inspect "$(TEST_ECHO_IMAGE)" >/dev/null 2>&1 || docker pull "$(TEST_ECHO_IMAGE)"
-	kind load docker-image "$(TEST_ECHO_IMAGE)" --name "$(REMOTE_KIND_CLUSTER)"
+	kind load docker-image "$(TEST_ECHO_IMAGE)" --name "$(CILIUM_KIND_CLUSTER)"
 
 load-benchmark-workload-images:
 	@docker image inspect "$(TEST_ECHO_IMAGE)" >/dev/null 2>&1 || docker pull "$(TEST_ECHO_IMAGE)"
 	@docker image inspect "$(BENCH_VEGETA_IMAGE)" >/dev/null 2>&1 || docker pull "$(BENCH_VEGETA_IMAGE)"
-	kind load docker-image "$(TEST_ECHO_IMAGE)" --name "$(REMOTE_KIND_CLUSTER)"
-	kind load docker-image "$(BENCH_VEGETA_IMAGE)" --name "$(REMOTE_KIND_CLUSTER)"
+	kind load docker-image "$(TEST_ECHO_IMAGE)" --name "$(CILIUM_KIND_CLUSTER)"
+	kind load docker-image "$(BENCH_VEGETA_IMAGE)" --name "$(CILIUM_KIND_CLUSTER)"
 
 apply-test-workload: load-test-workload-image
 	@test -f "$(TEST_WORKLOAD_FILE)" || { echo "missing $(TEST_WORKLOAD_FILE)"; exit 1; }
-	$(REMOTE_KUBECTL) apply -f "$(TEST_WORKLOAD_FILE)"
+	$(CILIUM_KUBECTL) apply -f "$(TEST_WORKLOAD_FILE)"
 
 apply-benchmark-workload: load-benchmark-workload-images
 	@test -f "$(BENCHMARK_WORKLOAD_FILE)" || { echo "missing $(BENCHMARK_WORKLOAD_FILE)"; exit 1; }
-	$(REMOTE_KUBECTL) apply -f "$(BENCHMARK_WORKLOAD_FILE)"
+	$(CILIUM_KUBECTL) apply -f "$(BENCHMARK_WORKLOAD_FILE)"
 
 wait-test-workload:
-	$(REMOTE_KUBECTL) -n $(TEST_NAMESPACE) wait --for=condition=Ready pod/$(TEST_ECHO_POD) pod/$(TEST_CLIENT_POD) --timeout=180s
+	$(CILIUM_KUBECTL) -n $(TEST_NAMESPACE) wait --for=condition=Ready pod/$(TEST_ECHO_POD) pod/$(TEST_CLIENT_POD) --timeout=180s
 	@for pod in "$(TEST_ECHO_POD)" "$(TEST_CLIENT_POD)"; do \
 		i=0; \
 		while true; do \
-			identity_id="$$($(REMOTE_KUBECTL) -n $(TEST_NAMESPACE) get ciliumendpoint $$pod -o jsonpath='{.status.identity.id}' 2>/dev/null || true)"; \
+			identity_id="$$($(CILIUM_KUBECTL) -n $(TEST_NAMESPACE) get ciliumendpoint $$pod -o jsonpath='{.status.identity.id}' 2>/dev/null || true)"; \
 			if [ -n "$$identity_id" ]; then \
 				echo "$$pod cilium identity=$$identity_id"; \
 				break; \
@@ -264,14 +264,14 @@ wait-test-workload:
 	done
 
 wait-benchmark-workload:
-	$(REMOTE_KUBECTL) -n $(BENCH_NAMESPACE) wait --for=condition=Ready pod/$(BENCH_PLAIN_ECHO_POD) pod/$(BENCH_AUTH_ECHO_POD) --timeout=180s
-	$(REMOTE_KUBECTL) -n $(BENCH_NAMESPACE) rollout status deployment/$(BENCH_VEGETA_DEPLOYMENT) --timeout=180s
-	@vegeta_pod="$$( $(REMOTE_KUBECTL) -n $(BENCH_NAMESPACE) get pod -l $(BENCH_VEGETA_LABEL) -o jsonpath='{.items[0].metadata.name}' )"; \
+	$(CILIUM_KUBECTL) -n $(BENCH_NAMESPACE) wait --for=condition=Ready pod/$(BENCH_PLAIN_ECHO_POD) pod/$(BENCH_AUTH_ECHO_POD) --timeout=180s
+	$(CILIUM_KUBECTL) -n $(BENCH_NAMESPACE) rollout status deployment/$(BENCH_VEGETA_DEPLOYMENT) --timeout=180s
+	@vegeta_pod="$$( $(CILIUM_KUBECTL) -n $(BENCH_NAMESPACE) get pod -l $(BENCH_VEGETA_LABEL) -o jsonpath='{.items[0].metadata.name}' )"; \
 	test -n "$$vegeta_pod" || { echo "missing vegeta pod"; exit 1; }; \
 	for pod in "$(BENCH_PLAIN_ECHO_POD)" "$(BENCH_AUTH_ECHO_POD)" "$$vegeta_pod"; do \
 		i=0; \
 		while true; do \
-			identity_id="$$($(REMOTE_KUBECTL) -n $(BENCH_NAMESPACE) get ciliumendpoint $$pod -o jsonpath='{.status.identity.id}' 2>/dev/null || true)"; \
+			identity_id="$$($(CILIUM_KUBECTL) -n $(BENCH_NAMESPACE) get ciliumendpoint $$pod -o jsonpath='{.status.identity.id}' 2>/dev/null || true)"; \
 			if [ -n "$$identity_id" ]; then \
 				echo "$$pod cilium identity=$$identity_id"; \
 				break; \
@@ -286,8 +286,8 @@ wait-benchmark-workload:
 	done
 
 configure-test-athenz-policy:
-	@src_id="$$($(REMOTE_KUBECTL) -n $(TEST_NAMESPACE) get ciliumendpoint $(TEST_CLIENT_POD) -o jsonpath='{.status.identity.id}')"; \
-	dst_id="$$($(REMOTE_KUBECTL) -n $(TEST_NAMESPACE) get ciliumendpoint $(TEST_ECHO_POD) -o jsonpath='{.status.identity.id}')"; \
+	@src_id="$$($(CILIUM_KUBECTL) -n $(TEST_NAMESPACE) get ciliumendpoint $(TEST_CLIENT_POD) -o jsonpath='{.status.identity.id}')"; \
+	dst_id="$$($(CILIUM_KUBECTL) -n $(TEST_NAMESPACE) get ciliumendpoint $(TEST_ECHO_POD) -o jsonpath='{.status.identity.id}')"; \
 	test -n "$$src_id" || { echo 'missing source cilium identity'; exit 1; }; \
 	test -n "$$dst_id" || { echo 'missing destination cilium identity'; exit 1; }; \
 	resource="$(ATHENZ_SERVICE_DOMAIN):service.$$dst_id:$(TEST_POLICY_PORT)$(TEST_POLICY_PATH)"; \
@@ -295,7 +295,7 @@ configure-test-athenz-policy:
 	for service_id in "$$src_id" "$$dst_id"; do \
 		i=0; \
 		while true; do \
-			if $(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+			if $(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
 				curl -sf \
 					--key /var/run/athenz/athenz_admin.private.pem \
 					--cert /var/run/athenz/athenz_admin.cert.pem \
@@ -310,7 +310,7 @@ configure-test-athenz-policy:
 			sleep 2; \
 		done; \
 	done; \
-	$(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+	$(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -318,7 +318,7 @@ configure-test-athenz-policy:
 			-d $(ATHENZ_SERVICE_DOMAIN) \
 			delete-policy \
 			$(TEST_POLICY) || :; \
-	$(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+	$(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -327,7 +327,7 @@ configure-test-athenz-policy:
 			add-regular-role \
 			$(TEST_ROLE) \
 			$(ATHENZ_SERVICE_DOMAIN).$$src_id || :; \
-	$(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+	$(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -336,7 +336,7 @@ configure-test-athenz-policy:
 			add-member \
 			$(TEST_ROLE) \
 			$(ATHENZ_SERVICE_DOMAIN).$$src_id || :; \
-	$(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+	$(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -345,7 +345,7 @@ configure-test-athenz-policy:
 			add-policy \
 			$(TEST_POLICY) \
 			grant $(TEST_POLICY_ACTION) to $(TEST_ROLE) on "$$resource" || :; \
-	$(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+	$(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -359,10 +359,10 @@ configure-test-athenz-policy:
 	echo "  resource: $$resource"
 
 configure-benchmark-athenz-policy:
-	@vegeta_pod="$$( $(REMOTE_KUBECTL) -n $(BENCH_NAMESPACE) get pod -l $(BENCH_VEGETA_LABEL) -o jsonpath='{.items[0].metadata.name}' )"; \
+	@vegeta_pod="$$( $(CILIUM_KUBECTL) -n $(BENCH_NAMESPACE) get pod -l $(BENCH_VEGETA_LABEL) -o jsonpath='{.items[0].metadata.name}' )"; \
 	test -n "$$vegeta_pod" || { echo "missing vegeta pod"; exit 1; }; \
-	src_id="$$($(REMOTE_KUBECTL) -n $(BENCH_NAMESPACE) get ciliumendpoint $$vegeta_pod -o jsonpath='{.status.identity.id}')"; \
-	dst_id="$$($(REMOTE_KUBECTL) -n $(BENCH_NAMESPACE) get ciliumendpoint $(BENCH_AUTH_ECHO_POD) -o jsonpath='{.status.identity.id}')"; \
+	src_id="$$($(CILIUM_KUBECTL) -n $(BENCH_NAMESPACE) get ciliumendpoint $$vegeta_pod -o jsonpath='{.status.identity.id}')"; \
+	dst_id="$$($(CILIUM_KUBECTL) -n $(BENCH_NAMESPACE) get ciliumendpoint $(BENCH_AUTH_ECHO_POD) -o jsonpath='{.status.identity.id}')"; \
 	test -n "$$src_id" || { echo 'missing benchmark source cilium identity'; exit 1; }; \
 	test -n "$$dst_id" || { echo 'missing benchmark destination cilium identity'; exit 1; }; \
 	resource="$(ATHENZ_SERVICE_DOMAIN):service.$$dst_id:$(BENCH_POLICY_PORT)$(BENCH_POLICY_PATH)"; \
@@ -370,7 +370,7 @@ configure-benchmark-athenz-policy:
 	for service_id in "$$src_id" "$$dst_id"; do \
 		i=0; \
 		while true; do \
-			if $(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+			if $(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
 				curl -sf \
 					--key /var/run/athenz/athenz_admin.private.pem \
 					--cert /var/run/athenz/athenz_admin.cert.pem \
@@ -385,7 +385,7 @@ configure-benchmark-athenz-policy:
 			sleep 2; \
 		done; \
 	done; \
-	$(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+	$(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -393,7 +393,7 @@ configure-benchmark-athenz-policy:
 			-d $(ATHENZ_SERVICE_DOMAIN) \
 			delete-policy \
 			$(BENCH_POLICY) || :; \
-	$(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+	$(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -402,7 +402,7 @@ configure-benchmark-athenz-policy:
 			add-regular-role \
 			$(BENCH_ROLE) \
 			$(ATHENZ_SERVICE_DOMAIN).$$src_id || :; \
-	$(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+	$(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -411,7 +411,7 @@ configure-benchmark-athenz-policy:
 			add-member \
 			$(BENCH_ROLE) \
 			$(ATHENZ_SERVICE_DOMAIN).$$src_id || :; \
-	$(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+	$(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -420,7 +420,7 @@ configure-benchmark-athenz-policy:
 			add-policy \
 			$(BENCH_POLICY) \
 			grant $(BENCH_POLICY_ACTION) to $(BENCH_ROLE) on "$$resource" || :; \
-	$(LOCAL_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+	$(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
 		zms-cli \
 			-z https://athenz-zms-server.athenz:4443/zms/v1 \
 			-key /var/run/athenz/athenz_admin.private.pem \
@@ -436,29 +436,29 @@ configure-benchmark-athenz-policy:
 deploy-test-workload: apply-test-workload wait-test-workload configure-test-athenz-policy
 	@echo "test workload deployed"; \
 	echo "verify with:"; \
-	echo "  $(REMOTE_KUBECTL) -n $(TEST_NAMESPACE) exec $(TEST_CLIENT_POD) -- curl -s -o /dev/null -w '%{http_code}\n' http://echo:$(TEST_POLICY_PORT)/headers"
+	echo "  $(CILIUM_KUBECTL) -n $(TEST_NAMESPACE) exec $(TEST_CLIENT_POD) -- curl -s -o /dev/null -w '%{http_code}\n' http://echo:$(TEST_POLICY_PORT)/headers"
 
 deploy-benchmark-workload: apply-benchmark-workload wait-benchmark-workload configure-benchmark-athenz-policy
 	@echo "benchmark workload deployed"; \
 	echo "run with:"; \
-	echo "  $(MAKE) -C athenz-cilium run-benchmark LOCAL_CONTEXT=$(LOCAL_CONTEXT) REMOTE_CONTEXT=$(REMOTE_CONTEXT)"
+	echo "  $(MAKE) -C athenz-cilium run-benchmark ATHENZ_CONTEXT=$(ATHENZ_CONTEXT) CILIUM_CONTEXT=$(CILIUM_CONTEXT)"
 
 run-benchmark:
 	@printf '\n===== benchmark: plain =====\n'; \
-	$(REMOTE_KUBECTL) -n $(BENCH_NAMESPACE) exec deployment/$(BENCH_VEGETA_DEPLOYMENT) -- /bin/sh -c \
+	$(CILIUM_KUBECTL) -n $(BENCH_NAMESPACE) exec deployment/$(BENCH_VEGETA_DEPLOYMENT) -- /bin/sh -c \
 		"echo 'GET http://$(BENCH_PLAIN_SERVICE):$(BENCH_POLICY_PORT)$(BENCH_POLICY_PATH)' \
 		| vegeta attack -workers=$(BENCH_WORKERS) -rate=$(BENCH_RATE) -duration=$(BENCH_DURATION) -keepalive $(BENCH_KEEPALIVE) \
 		| tee /data/plain.bin | vegeta report"; \
 	printf '\n===== benchmark: auth =====\n'; \
-	$(REMOTE_KUBECTL) -n $(BENCH_NAMESPACE) exec deployment/$(BENCH_VEGETA_DEPLOYMENT) -- /bin/sh -c \
+	$(CILIUM_KUBECTL) -n $(BENCH_NAMESPACE) exec deployment/$(BENCH_VEGETA_DEPLOYMENT) -- /bin/sh -c \
 		"echo 'GET http://$(BENCH_AUTH_SERVICE):$(BENCH_POLICY_PORT)$(BENCH_POLICY_PATH)' \
 		| vegeta attack -workers=$(BENCH_WORKERS) -rate=$(BENCH_RATE) -duration=$(BENCH_DURATION) -keepalive $(BENCH_KEEPALIVE) \
 		| tee /data/auth.bin | vegeta report"
 
 clean-test-workload:
 	@test -f "$(TEST_WORKLOAD_FILE)" || { echo "missing $(TEST_WORKLOAD_FILE)"; exit 1; }
-	$(REMOTE_KUBECTL) delete -f "$(TEST_WORKLOAD_FILE)" --ignore-not-found
+	$(CILIUM_KUBECTL) delete -f "$(TEST_WORKLOAD_FILE)" --ignore-not-found
 
 clean-benchmark-workload:
 	@test -f "$(BENCHMARK_WORKLOAD_FILE)" || { echo "missing $(BENCHMARK_WORKLOAD_FILE)"; exit 1; }
-	$(REMOTE_KUBECTL) delete -f "$(BENCHMARK_WORKLOAD_FILE)" --ignore-not-found
+	$(CILIUM_KUBECTL) delete -f "$(BENCHMARK_WORKLOAD_FILE)" --ignore-not-found

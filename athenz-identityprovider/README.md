@@ -8,12 +8,12 @@ Files below must be configured for each use cases accordingly
 1. [athenz-sia.env](kustomize/athenz-sia/athenz-sia.env)
 1. [config.yaml](kustomize/athenz-identityprovider/policy/config.yaml)
 1. [secret.yaml](#creating-tls-server-certificate-secret)
-1. `identityprovider-remote-cluster` Secret with key `kubeconfig`
+1. `identityprovider-remote-cluster` Secret with key `kubeconfig` (stores the cilium cluster's kubeconfig)
 
 ## Directory Layout
 
-- `kustomize/`: `athenz-identityprovider` をデプロイするクラスタに apply する manifest
-- `cilium/`: 参照したい外部クラスタ側に apply する manifest
+- `kustomize/`: Manifests applied to the Athenz cluster where `athenz-identityprovider` runs
+- `cilium/`: RBAC manifests applied to the Cilium cluster
 
 ## Deployment
 
@@ -21,32 +21,32 @@ Files below must be configured for each use cases accordingly
 kubectl -n athenz apply -k kustomize
 ```
 
-## Watching Another Cluster
+## Watching the Cilium Cluster
 
 `athenz-identityprovider` now reads its Kubernetes API target from `/var/run/identityprovider-kubeconfig/config`.
 
 - `identityprovider-remote-cluster` Secret is required.
-- Both `kube-mgmt` and `kubectl proxy` use that kubeconfig and talk to the target cluster.
+- Both `kube-mgmt` and `kubectl proxy` use that kubeconfig and talk to the cilium cluster.
 
 Example:
 
 ```sh
 kubectl -n athenz create secret generic identityprovider-remote-cluster \
-  --from-file=kubeconfig=/path/to/remote-cluster.kubeconfig
+  --from-file=kubeconfig=/path/to/cilium-cluster.kubeconfig
 ```
 
-Apply the remote-cluster RBAC to the target cluster first:
+Apply the RBAC to the cilium cluster first:
 
 ```sh
 kubectl apply -k cilium
 ```
 
-When you switch to a remote cluster, also update `kustomize/athenz-identityprovider-policy/policy/config.yaml` so that:
+When you switch to a different cilium cluster, also update `kustomize/athenz-identityprovider-policy/policy/config.yaml` so that:
 
 - `config.constraints.kubernetes.serviceaccount.token.issuer`
 - `config.constraints.kubernetes.serviceaccount.token.audience`
 
-match the remote cluster's ServiceAccount token settings.
+match the cilium cluster's ServiceAccount token settings.
 
 The policy files under `kustomize/athenz-identityprovider-policy/` are vendored into this repository and are no longer managed as a git submodule.
 
