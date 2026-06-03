@@ -302,6 +302,33 @@ sequenceDiagram
 
 > Source: [`pkg/auth/mutual_authhandler.go`](https://github.com/fsul7o/cilium/blob/integration-athenz/pkg/auth/mutual_authhandler.go) — agent-to-agent TLS handshake
 
+## Limitations
+
+### Cilium mTLS General Limitations
+
+These are inherent limitations of Cilium's mutual authentication mechanism (not specific to the Athenz integration):
+
+| Limitation | Detail |
+|------------|--------|
+| **Authentication only, no encryption** | Cilium mTLS verifies identity via a TLS handshake between agents, but does **not** encrypt the actual pod-to-pod datapath traffic. Encryption requires a separate mechanism (e.g. WireGuard). |
+| **No Cluster Mesh support** | There is no option to build a single trust domain across multiple clusters connected via Cluster Mesh. However, since the Athenz integration uses a single external CA (Athenz ZTS) rather than a per-cluster SPIRE server, cross-cluster trust may be achievable in the future. |
+| **Not compatible with external mTLS** | The mechanism only works within a Cilium-managed cluster and cannot be combined with an external mTLS solution. |
+| **Reserved identities are excluded** | Cilium's reserved identities (host, world, health, init, etc.) are skipped during authentication. Traffic involving these identities is not mTLS-protected. |
+| **Beta status** | The feature remains in beta. Per-connection handshake, WireGuard integration, and network encryption using auth secrets are on the roadmap but not yet implemented. |
+
+> See also: [Cilium Mutual Authentication documentation](https://docs.cilium.io/en/latest/network/servicemesh/mutual-authentication/mutual-authentication/)
+
+### Athenz Integration Specific Limitations
+
+| Limitation | Detail |
+|------------|--------|
+| **Ingress-only policy** | Policy sync generates ingress rules only. Egress-side enforcement from Athenz policies is not supported. |
+| **DENY policies are ignored** | Athenz `DENY` assertions are skipped. Only `ALLOW` assertions are translated to CiliumNetworkPolicy. |
+| **TCP only** | Generated port rules assume TCP. UDP or SCTP protocols in Athenz policies are not supported. |
+| **Single Athenz domain** | The operator and agent are configured with a single Athenz domain (e.g. `cilium`). Multi-domain setups require multiple deployments. |
+| **Polling-based policy sync** | Policies are fetched by polling ZMS at a fixed interval (default: 30s). There is no push-based notification — policy changes take up to one interval to propagate. |
+| **Resource format constraint** | Athenz assertion resources must follow the format `<domain>:service.<identityID>[:<port>][/path]`. Assertions with other resource formats are skipped. |
+
 ## Related Projects
 
 - [Athenz](https://github.com/AthenZ/athenz) — Platform for X.509 certificate-based service authentication and fine-grained access control
