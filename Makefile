@@ -66,7 +66,7 @@ kind-delete:
 	$(KIND) delete cluster --name $(KIND_ATHENZ_CLUSTER)
 	$(KIND) delete cluster --name $(KIND_CILIUM_CLUSTER)
 
-deploy-athenz: 
+deploy-athenz:
 	$(ATHENZ_KUBECTL_ENV) $(MAKE) -C athenz-distribution clean-kubernetes-athenz
 	@if [ -n "$(ATHENZ_GIT_REF)" ] || [ "$(ATHENZ_REPO_URL)" != "https://github.com/AthenZ/athenz.git" ]; then \
 		$(ATHENZ_KUBECTL_ENV) $(MAKE) -C athenz-distribution load-docker-images; \
@@ -74,6 +74,29 @@ deploy-athenz:
 		$(ATHENZ_KUBECTL_ENV) $(MAKE) -C athenz-distribution load-kubernetes-images KIND_CLUSTER_NAME=$(KIND_ATHENZ_CLUSTER); \
 	fi
 	$(ATHENZ_KUBECTL_ENV) $(MAKE) -C athenz-distribution deploy-kubernetes-athenz KIND_CLUSTER_NAME=$(KIND_ATHENZ_CLUSTER)
+	$(MAKE) wait-athenz
+
+wait-athenz:
+	@echo "Waiting for Athenz ZMS and ZTS to become ready..."
+	@$(ATHENZ_KUBECTL) -n athenz rollout status deployment/athenz-zms-server --timeout=300s
+	@$(ATHENZ_KUBECTL) -n athenz rollout status deployment/athenz-zts-server --timeout=300s
+	@i=0; while true; do \
+		if $(ATHENZ_KUBECTL) -n athenz exec deployment/athenz-cli -- \
+			curl -sf --key /var/run/athenz/athenz_admin.private.pem \
+				--cert /var/run/athenz/athenz_admin.cert.pem \
+				"https://athenz-zms-server.athenz:4443/zms/v1/domain/sys.auth" >/dev/null 2>&1 \
+			&& $(ATHENZ_KUBECTL) -n athenz exec deployment/athenz-cli -- \
+				curl -sf "https://athenz-zts-server.athenz:4443/zts/v1/status" >/dev/null 2>&1; then \
+			echo "Athenz ZMS and ZTS are ready."; \
+			break; \
+		fi; \
+		i=$$((i + 1)); \
+		if [ $$i -ge 60 ]; then \
+			echo "Timed out waiting for Athenz to become ready"; \
+			exit 1; \
+		fi; \
+		sleep 3; \
+	done
 
 clean-athenz:
 	$(ATHENZ_KUBECTL_ENV) $(MAKE) -C athenz-distribution clean-kubernetes-athenz
