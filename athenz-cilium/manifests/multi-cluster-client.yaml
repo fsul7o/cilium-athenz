@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: echo
+  namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: echo
+  name: echo
+  namespace: default
+  annotations:
+    service.cilium.io/global: "true"
+spec:
+  ports:
+  - name: http
+    port: 3000
+    protocol: TCP
+    targetPort: 3000
+  selector:
+    app: echo
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: client
+  namespace: default
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    app: pod-worker
+  name: pod-worker
+  namespace: default
+spec:
+  serviceAccountName: client
+  containers:
+  - name: netshoot
+    image: nicolaka/netshoot:latest
+    command:
+    - sleep
+    - infinity

@@ -21,6 +21,8 @@ SERVICE_CERT_FILE ?= service.cert.pem
 TLS_SECRET_MANIFEST ?= $(KUSTOMIZE_DIR)/secret.yaml
 CILIUM_KIND_CLUSTER_NAME ?= $(patsubst kind-%,%,$(CILIUM_CONTEXT))
 CILIUM_KIND_CONTROL_PLANE ?= $(CILIUM_KIND_CLUSTER_NAME)-control-plane
+IDENTITYPROVIDER_DEPLOYMENT ?= identityprovider-deployment
+IDENTITYPROVIDER_JWT_SECRET ?= identityprovider-jwt
 
 KUSTOMIZE_NAMESPACE := $(shell sed -n 's/^namespace:[[:space:]]*//p' $(KUSTOMIZE_DIR)/kustomization.yaml | head -n 1)
 IDENTITYPROVIDER_NAMESPACE := $(shell sed -n 's/^IDENTITYPROVIDER_NAMESPACE=//p' $(KUSTOMIZE_DIR)/athenz-identityprovider.env | tail -n 1)
@@ -275,7 +277,7 @@ setup-athenz-identityprovider: register-athenz-identityprovider configure-identi
 		sh -c "chmod a+rw /tmp/.*.jwt ||:; zts-svccert -get-instance-register-token -zts $(ENDPOINT) -domain $(ATHENZ_SERVICE_DOMAIN) -service $(SERVICEACCOUNT) -provider $(PROVIDER_SERVICE) -instance $(ATHENZ_PROVIDER_SERVICE) -svc-key-file /var/run/athenz/athenz_admin.private.pem -svc-cert-file /var/run/athenz/athenz_admin.cert.pem -attestation-data /tmp/.identitydocument.jwt"
 	$(ATHENZ_KUBECTL) -n athenz exec deployment/athenz-cli -- \
 		cat /tmp/.identitydocument.jwt > identitydocument.jwt
-	$(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) create secret generic identityprovider-jwt \
+	$(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) create secret generic $(IDENTITYPROVIDER_JWT_SECRET) \
 		--from-file=identitydocument.jwt=identitydocument.jwt \
 		--dry-run=client -o yaml > $(TLS_SECRET_MANIFEST)
 	$(ATHENZ_KUBECTL) -n athenz exec -i deployment/athenz-cli -- \
@@ -292,7 +294,7 @@ setup-athenz-identityprovider: register-athenz-identityprovider configure-identi
 
 deploy-athenz-identityprovider: check-local-files create-cilium-kubeconfig-secret
 	$(ATHENZ_KUBECTL) apply -k $(KUSTOMIZE_DIR)
-	$(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) rollout restart deployment/identityprovider-deployment
+	$(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) rollout restart deployment/$(IDENTITYPROVIDER_DEPLOYMENT)
 	$(MAKE) test-athenz-identityprovider
 
 build-athenz-identityprovider: generate-cilium-kubeconfig generate-private-key deploy-cilium-rbac setup-athenz-identityprovider deploy-athenz-identityprovider status-athenz-identityprovider
@@ -308,8 +310,8 @@ test-athenz-identityprovider:
 	i=0; \
 	while true; do \
 		printf "\n***** Waiting for identityprovider ($$(( $$i * $${SLEEP_SECONDS} ))s/$${WAITING_THRESHOLD}s) *****\n"; \
-		if $(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) rollout status deployment/identityprovider-deployment --timeout=5s >/dev/null 2>&1 \
-			&& $(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) exec deployment/identityprovider-deployment -c sia -- \
+		if $(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) rollout status deployment/$(IDENTITYPROVIDER_DEPLOYMENT) --timeout=5s >/dev/null 2>&1 \
+			&& $(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) exec deployment/$(IDENTITYPROVIDER_DEPLOYMENT) -c sia -- \
 				ls -alF /var/run/athenz/tls.key /var/run/athenz/tls.crt /var/run/athenz/ca.crt >/dev/null; then \
 			break; \
 		fi; \
@@ -318,20 +320,20 @@ test-athenz-identityprovider:
 		i=$$(( i + 1 )); \
 		if [ $$i -eq $$(( $${WAITING_THRESHOLD} / $${SLEEP_SECONDS} )) ]; then \
 			printf "\n\n** Waiting ($$(( $$i * $${SLEEP_SECONDS} ))s) reached threshold ($${WAITING_THRESHOLD}s) **\n\n"; \
-			$(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get pods -l app=identityprovider-deployment; \
-			$(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) logs deployment/identityprovider-deployment --all-containers=true || :; \
-			$(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) describe deployment identityprovider-deployment || :; \
+			$(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get pods -l app=$(IDENTITYPROVIDER_DEPLOYMENT); \
+			$(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) logs deployment/$(IDENTITYPROVIDER_DEPLOYMENT) --all-containers=true || :; \
+			$(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) describe deployment $(IDENTITYPROVIDER_DEPLOYMENT) || :; \
 			exit 1; \
 		fi; \
 	done
 	$(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get all
 
 status-athenz-identityprovider:
-	$(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get deployment identityprovider-deployment
-	$(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get pods -l app=identityprovider-deployment
-	$(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get secret identityprovider-jwt
+	$(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get deployment $(IDENTITYPROVIDER_DEPLOYMENT)
+	$(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get pods -l app=$(IDENTITYPROVIDER_DEPLOYMENT)
+	$(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get secret $(IDENTITYPROVIDER_JWT_SECRET)
 	$(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get secret $(CERT_SECRET)
 	$(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) get secret $(CILIUM_SECRET_NAME)
 
 logs-athenz-identityprovider:
-	$(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) logs deployment/identityprovider-deployment --all-containers=true --tail=200
+	$(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) logs deployment/$(IDENTITYPROVIDER_DEPLOYMENT) --all-containers=true --tail=200

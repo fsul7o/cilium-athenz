@@ -1,0 +1,74 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: benchmark-client
+  namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: echo-auth
+  name: echo-auth
+  namespace: default
+  annotations:
+    service.cilium.io/global: "true"
+spec:
+  ports:
+  - name: http
+    port: 3000
+    protocol: TCP
+    targetPort: 3000
+  selector:
+    app: echo-auth
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: echo-plain
+  name: echo-plain
+  namespace: default
+  annotations:
+    service.cilium.io/global: "true"
+spec:
+  ports:
+  - name: http
+    port: 3000
+    protocol: TCP
+    targetPort: 3000
+  selector:
+    app: echo-plain
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: vegeta
+  name: vegeta
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vegeta
+  template:
+    metadata:
+      labels:
+        app: vegeta
+    spec:
+      serviceAccountName: benchmark-client
+      volumes:
+      - name: data
+        emptyDir: {}
+      containers:
+      - image: ghcr.io/ctyano/docker-vegeta:latest
+        imagePullPolicy: IfNotPresent
+        name: vegeta
+        command:
+        - tail
+        - -f
+        - /dev/null
+        volumeMounts:
+        - mountPath: /data
+          name: data

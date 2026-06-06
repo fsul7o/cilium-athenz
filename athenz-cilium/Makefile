@@ -5,6 +5,8 @@ ATHENZ_CONTEXT ?= kind-cilium-athenz
 ATHENZ_KUBECTL ?= $(KUBECTL) --context $(ATHENZ_CONTEXT)
 CILIUM_CONTEXT ?= kind-cilium
 CILIUM_KUBECTL ?= $(KUBECTL) --context $(CILIUM_CONTEXT)
+CILIUM1_CONTEXT ?=
+CILIUM2_CONTEXT ?=
 CILIUM_KIND_CLUSTER ?= $(patsubst kind-%,%,$(CILIUM_CONTEXT))
 CILIUM_SECRET_NAMESPACE ?= kube-system
 ATHENZ_CACERT_SECRET ?= athenz-cacert
@@ -454,6 +456,158 @@ run-benchmark:
 		"echo 'GET http://$(BENCH_AUTH_SERVICE):$(BENCH_POLICY_PORT)$(BENCH_POLICY_PATH)' \
 		| vegeta attack -workers=$(BENCH_WORKERS) -rate=$(BENCH_RATE) -duration=$(BENCH_DURATION) -keepalive $(BENCH_KEEPALIVE) \
 		| tee /data/auth.bin | vegeta report"
+
+configure-multi-cluster-test-athenz-policy:
+	@test -n "$(CILIUM1_CONTEXT)" || { echo 'missing CILIUM1_CONTEXT'; exit 1; }
+	@test -n "$(CILIUM2_CONTEXT)" || { echo 'missing CILIUM2_CONTEXT'; exit 1; }
+	@src_id="$$($(KUBECTL) --context $(CILIUM1_CONTEXT) -n $(TEST_NAMESPACE) get ciliumendpoint $(TEST_CLIENT_POD) -o jsonpath='{.status.identity.id}')"; \
+	dst_id="$$($(KUBECTL) --context $(CILIUM2_CONTEXT) -n $(TEST_NAMESPACE) get ciliumendpoint $(TEST_ECHO_POD) -o jsonpath='{.status.identity.id}')"; \
+	test -n "$$src_id" || { echo 'missing source cilium identity (cluster1)'; exit 1; }; \
+	test -n "$$dst_id" || { echo 'missing destination cilium identity (cluster2)'; exit 1; }; \
+	resource="$(ATHENZ_SERVICE_DOMAIN):service.$$dst_id:$(TEST_POLICY_PORT)$(TEST_POLICY_PATH)"; \
+	echo "configure multi-cluster Athenz policy: cilium.$$src_id (cluster1) -> cilium.$$dst_id (cluster2)"; \
+	for service_id in "$$src_id" "$$dst_id"; do \
+		i=0; \
+		while true; do \
+			if $(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+				curl -sf \
+					--key /var/run/athenz/athenz_admin.private.pem \
+					--cert /var/run/athenz/athenz_admin.cert.pem \
+					"https://athenz-zms-server.athenz:4443/zms/v1/domain/$(ATHENZ_SERVICE_DOMAIN)/service/$$service_id" >/dev/null; then \
+				break; \
+			fi; \
+			i=$$((i + 1)); \
+			if [ $$i -ge 60 ]; then \
+				echo "timed out waiting for Athenz service $(ATHENZ_SERVICE_DOMAIN).$$service_id"; \
+				exit 1; \
+			fi; \
+			sleep 2; \
+		done; \
+	done; \
+	$(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			delete-policy \
+			$(TEST_POLICY) || :; \
+	$(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			add-regular-role \
+			$(TEST_ROLE) \
+			$(ATHENZ_SERVICE_DOMAIN).$$src_id || :; \
+	$(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			add-member \
+			$(TEST_ROLE) \
+			$(ATHENZ_SERVICE_DOMAIN).$$src_id || :; \
+	$(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			add-policy \
+			$(TEST_POLICY) \
+			grant $(TEST_POLICY_ACTION) to $(TEST_ROLE) on "$$resource" || :; \
+	$(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			add-assertion \
+			$(TEST_POLICY) \
+			grant $(TEST_POLICY_ACTION) to $(TEST_ROLE) on "$$resource" || :; \
+	echo "Athenz multi-cluster role=$(TEST_ROLE) policy=$(TEST_POLICY)"; \
+	echo "  member: $(ATHENZ_SERVICE_DOMAIN).$$src_id (cluster1)"; \
+	echo "  resource: $$resource (cluster2)"
+
+configure-multi-cluster-benchmark-athenz-policy:
+	@test -n "$(CILIUM1_CONTEXT)" || { echo 'missing CILIUM1_CONTEXT'; exit 1; }
+	@test -n "$(CILIUM2_CONTEXT)" || { echo 'missing CILIUM2_CONTEXT'; exit 1; }
+	@vegeta_pod="$$( $(KUBECTL) --context $(CILIUM1_CONTEXT) -n $(BENCH_NAMESPACE) get pod -l $(BENCH_VEGETA_LABEL) -o jsonpath='{.items[0].metadata.name}' )"; \
+	test -n "$$vegeta_pod" || { echo "missing vegeta pod"; exit 1; }; \
+	src_id="$$($(KUBECTL) --context $(CILIUM1_CONTEXT) -n $(BENCH_NAMESPACE) get ciliumendpoint $$vegeta_pod -o jsonpath='{.status.identity.id}')"; \
+	dst_id="$$($(KUBECTL) --context $(CILIUM2_CONTEXT) -n $(BENCH_NAMESPACE) get ciliumendpoint $(BENCH_AUTH_ECHO_POD) -o jsonpath='{.status.identity.id}')"; \
+	test -n "$$src_id" || { echo 'missing benchmark source cilium identity (cluster1)'; exit 1; }; \
+	test -n "$$dst_id" || { echo 'missing benchmark destination cilium identity (cluster2)'; exit 1; }; \
+	resource="$(ATHENZ_SERVICE_DOMAIN):service.$$dst_id:$(BENCH_POLICY_PORT)$(BENCH_POLICY_PATH)"; \
+	echo "configure multi-cluster benchmark Athenz policy: cilium.$$src_id (cluster1) -> cilium.$$dst_id (cluster2)"; \
+	for service_id in "$$src_id" "$$dst_id"; do \
+		i=0; \
+		while true; do \
+			if $(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+				curl -sf \
+					--key /var/run/athenz/athenz_admin.private.pem \
+					--cert /var/run/athenz/athenz_admin.cert.pem \
+					"https://athenz-zms-server.athenz:4443/zms/v1/domain/$(ATHENZ_SERVICE_DOMAIN)/service/$$service_id" >/dev/null; then \
+				break; \
+			fi; \
+			i=$$((i + 1)); \
+			if [ $$i -ge 60 ]; then \
+				echo "timed out waiting for Athenz service $(ATHENZ_SERVICE_DOMAIN).$$service_id"; \
+				exit 1; \
+			fi; \
+			sleep 2; \
+		done; \
+	done; \
+	$(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			delete-policy \
+			$(BENCH_POLICY) || :; \
+	$(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			add-regular-role \
+			$(BENCH_ROLE) \
+			$(ATHENZ_SERVICE_DOMAIN).$$src_id || :; \
+	$(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			add-member \
+			$(BENCH_ROLE) \
+			$(ATHENZ_SERVICE_DOMAIN).$$src_id || :; \
+	$(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			add-policy \
+			$(BENCH_POLICY) \
+			grant $(BENCH_POLICY_ACTION) to $(BENCH_ROLE) on "$$resource" || :; \
+	$(ATHENZ_KUBECTL) -n athenz exec $(ATHENZ_CLI_DEPLOYMENT) -- \
+		zms-cli \
+			-z https://athenz-zms-server.athenz:4443/zms/v1 \
+			-key /var/run/athenz/athenz_admin.private.pem \
+			-cert /var/run/athenz/athenz_admin.cert.pem \
+			-d $(ATHENZ_SERVICE_DOMAIN) \
+			add-assertion \
+			$(BENCH_POLICY) \
+			grant $(BENCH_POLICY_ACTION) to $(BENCH_ROLE) on "$$resource" || :; \
+	echo "Athenz multi-cluster benchmark role=$(BENCH_ROLE) policy=$(BENCH_POLICY)"; \
+	echo "  member: $(ATHENZ_SERVICE_DOMAIN).$$src_id (cluster1)"; \
+	echo "  resource: $$resource (cluster2)"
 
 clean-test-workload:
 	@test -f "$(TEST_WORKLOAD_FILE)" || { echo "missing $(TEST_WORKLOAD_FILE)"; exit 1; }
