@@ -69,6 +69,9 @@ Cilium agents and operators obtain X.509 certificates from Athenz (via ZTS) inst
 ## Quick Start
 
 ```bash
+# 0. Submodule setup
+git submodule update --init --recursive
+
 # 1. Apply patch files to submodules
 make patch
 

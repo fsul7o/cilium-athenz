@@ -37,6 +37,9 @@ Athenz acts as an external shared CA, enabling mTLS authentication across multip
 ## Quick Start
 
 ```bash
+# 0. Submodule setup
+git submodule update --init --recursive
+
 # 1. Apply patch files to submodules
 make patch
 
