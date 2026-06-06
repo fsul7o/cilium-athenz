@@ -12,6 +12,7 @@ CILIUM_CONTEXT ?= kind-cilium
 CILIUM_KUBECTL ?= $(KUBECTL) --context $(CILIUM_CONTEXT)
 KIND ?= kind
 KUSTOMIZE_DIR ?= kustomize
+KUSTOMIZE_APPLY_DIR ?= $(KUSTOMIZE_DIR)
 CILIUM_RBAC_DIR ?= cilium
 CILIUM_SECRET_NAME ?= identityprovider-remote-cluster
 CILIUM_KUBECONFIG ?= /tmp/athenz-identityprovider-$(CILIUM_CONTEXT).kubeconfig
@@ -292,8 +293,19 @@ setup-athenz-identityprovider: register-athenz-identityprovider configure-identi
 		--cert $(SERVICE_CERT_FILE) \
 		--dry-run=client -o yaml >> $(TLS_SECRET_MANIFEST)
 
-deploy-athenz-identityprovider: check-local-files create-cilium-kubeconfig-secret
-	$(ATHENZ_KUBECTL) apply -k $(KUSTOMIZE_DIR)
+
+sync-athenz-cacert-to-namespace:
+	@tmp_ca="$$(mktemp)"; \
+	$(ATHENZ_KUBECTL) -n athenz get secret athenz-cacert -o jsonpath='{.data.ca\.cert\.pem}' | openssl base64 -d -A > "$$tmp_ca"; \
+	$(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) create secret generic athenz-cacert \
+		--from-file=ca.cert.pem="$$tmp_ca" \
+		--dry-run=client -o yaml | $(ATHENZ_KUBECTL) apply -f -; \
+	rm -f "$$tmp_ca"
+
+deploy-athenz-identityprovider: check-local-files
+	$(ATHENZ_KUBECTL) apply -k $(KUSTOMIZE_APPLY_DIR)
+	$(MAKE) sync-athenz-cacert-to-namespace
+	$(MAKE) create-cilium-kubeconfig-secret
 	$(ATHENZ_KUBECTL) -n $(IDENTITYPROVIDER_NAMESPACE) rollout restart deployment/$(IDENTITYPROVIDER_DEPLOYMENT)
 	$(MAKE) test-athenz-identityprovider
 

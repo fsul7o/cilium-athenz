@@ -105,6 +105,22 @@ kubectl --context kind-cilium -n default exec -it pod-worker -- \
   curl http://echo:3000/headers-1
 ```
 
+Verify mTLS is active (check BPF auth map on the node hosting the echo pod):
+
+```bash
+# Find the cilium agent pod on the node where echo runs
+ECHO_NODE=$(kubectl --context kind-cilium get pod echo -o jsonpath='{.spec.nodeName}')
+CILIUM_POD=$(kubectl --context kind-cilium -n kube-system get pods -l k8s-app=cilium \
+  --field-selector spec.nodeName=$ECHO_NODE -o jsonpath='{.items[0].metadata.name}')
+
+# Check auth map entries (should show spire auth type with valid expiration)
+kubectl --context kind-cilium -n kube-system exec $CILIUM_POD -c cilium-agent -- \
+  cilium-dbg bpf auth list
+
+# SRC IDENTITY   DST IDENTITY   REMOTE NODE ID   AUTH TYPE   EXPIRATION
+# 31400          46344          0                spire       2026-07-06 14:42:31 +0000 UTC
+```
+
 Clean up:
 
 ```bash
@@ -173,6 +189,10 @@ Error Set:
 ```bash
 make kind-delete
 ```
+
+## Multi-Cluster
+
+See [docs/multi-cluster.md](docs/multi-cluster.md) for multi-cluster setup with ClusterMesh + Athenz mTLS across two Cilium clusters.
 
 ## How It Works
 

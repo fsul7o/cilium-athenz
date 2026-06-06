@@ -1,0 +1,75 @@
+cluster:
+  name: cilium2
+  id: 2
+
+image:
+  pullPolicy: Never
+  useDigest: false
+
+serviceAccounts:
+  cilium:
+    name: cilium-agent
+
+hostAliases:
+  - ip: "172.19.0.6"
+    hostnames:
+      - athenz-zts-server.athenz
+      - athenz-zms-server.athenz
+
+operator:
+  identityGCInterval: 30s
+  identityHeartbeatTimeout: 1m
+  nodeSelector:
+    kubernetes.io/os: linux
+    kubernetes.io/hostname: cilium2-worker
+  image:
+    pullPolicy: Never
+    useDigest: false
+  hostAliases:
+    - ip: "172.19.0.6"
+      hostnames:
+        - athenz-zts-server.athenz
+        - athenz-zms-server.athenz
+
+envoy:
+  image:
+    pullPolicy: Never
+    useDigest: false
+
+authentication:
+  enabled: true
+  mutual:
+    port: 4250
+    connectTimeout: 5s
+    athenz:
+      enabled: true
+      domain: cilium
+      providerService: cilium.identityprovider2
+      spiffeTrustDomain: athenz.io
+      spiffeNamespace: default
+      zts:
+        endpoint: https://athenz-zts-server.athenz:32443/zts/v1
+        caSecretName: athenz-cacert
+      zms:
+        endpoint: https://athenz-zms-server.athenz:32444/zms/v1
+        timeout: 10s
+      policySync:
+        enabled: true
+
+ipv6:
+  enabled: false
+
+clustermesh:
+  useAPIServer: true
+  config:
+    enabled: true
+  apiserver:
+    image:
+      pullPolicy: Never
+    service:
+      nodePort: 32380
+    readinessProbe:
+      periodSeconds: 1
+    kvstoremesh:
+      readinessProbe:
+        periodSeconds: 1

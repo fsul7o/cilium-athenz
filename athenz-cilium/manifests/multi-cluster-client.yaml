@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: echo
+  name: client
   namespace: default
 ---
 apiVersion: v1
@@ -21,12 +21,6 @@ spec:
     targetPort: 3000
   selector:
     app: echo
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: client
-  namespace: default
 ---
 apiVersion: v1
 kind: Pod

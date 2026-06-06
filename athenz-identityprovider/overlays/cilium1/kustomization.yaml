@@ -1,0 +1,72 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: identityprovider-cilium1
+
+resources:
+  - ../../kustomize
+
+patches:
+  - target:
+      kind: ClusterRole
+    patch: |
+      - op: replace
+        path: /metadata/name
+        value: identityprovider-cilium1
+    options:
+      allowNameChange: true
+  - target:
+      kind: ClusterRole
+      name: identityprovider-list-nodes
+    patch: |
+      - op: replace
+        path: /metadata/name
+        value: identityprovider-list-nodes-cilium1
+    options:
+      allowNameChange: true
+  - target:
+      kind: ClusterRole
+      name: identityprovider-list-pods
+    patch: |
+      - op: replace
+        path: /metadata/name
+        value: identityprovider-list-pods-cilium1
+    options:
+      allowNameChange: true
+  - target:
+      kind: ClusterRoleBinding
+      name: identityprovider-list-nodes
+    patch: |
+      - op: replace
+        path: /metadata/name
+        value: identityprovider-list-nodes-cilium1
+      - op: replace
+        path: /roleRef/name
+        value: identityprovider-list-nodes-cilium1
+      - op: replace
+        path: /subjects/0/namespace
+        value: identityprovider-cilium1
+    options:
+      allowNameChange: true
+  - target:
+      kind: ClusterRoleBinding
+      name: identityprovider-list-pods
+    patch: |
+      - op: replace
+        path: /metadata/name
+        value: identityprovider-list-pods-cilium1
+      - op: replace
+        path: /roleRef/name
+        value: identityprovider-list-pods-cilium1
+      - op: replace
+        path: /subjects/0/namespace
+        value: identityprovider-cilium1
+    options:
+      allowNameChange: true
+  - target:
+      kind: RoleBinding
+    patch: |
+      - op: replace
+        path: /subjects/0/namespace
+        value: identityprovider-cilium1

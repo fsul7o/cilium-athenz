@@ -169,25 +169,18 @@ multi-deploy-identityprovider:
 	$(MAKE) -C athenz-identityprovider build-athenz-identityprovider \
 		ATHENZ_CONTEXT=$(ATHENZ_CONTEXT) \
 		CILIUM_CONTEXT=$(CILIUM1_CONTEXT) \
-		CILIUM_KIND_CLUSTER_NAME=$(KIND_CILIUM1_CLUSTER)
-	$(MAKE) -C athenz-identityprovider deploy-cilium-rbac \
-		CILIUM_CONTEXT=$(CILIUM2_CONTEXT) \
-		CILIUM_KUBECTL="$(KUBECTL) --context $(CILIUM2_CONTEXT)"
-	$(MAKE) multi-deploy-identityprovider2
-
-multi-deploy-identityprovider2:
+		CILIUM_KIND_CLUSTER_NAME=$(KIND_CILIUM1_CLUSTER) \
+		KUSTOMIZE_APPLY_DIR=overlays/cilium1 \
+		IDENTITYPROVIDER_NAMESPACE=identityprovider-cilium1 \
+		IDENTITYPROVIDER_ENDPOINT_HOST=identityprovider.identityprovider-cilium1
 	$(MAKE) -C athenz-identityprovider build-athenz-identityprovider \
 		ATHENZ_CONTEXT=$(ATHENZ_CONTEXT) \
 		CILIUM_CONTEXT=$(CILIUM2_CONTEXT) \
 		CILIUM_KIND_CLUSTER_NAME=$(KIND_CILIUM2_CLUSTER) \
-		KUSTOMIZE_DIR=kustomize-multi2 \
-		CILIUM_RBAC_DIR=cilium2 \
-		CILIUM_SECRET_NAME=identityprovider2-remote-cluster \
-		PRIVATE_KEY_FILE=private2.key.pem \
-		SERVICE_CERT_FILE=service2.cert.pem \
-		TLS_SECRET_MANIFEST=kustomize-multi2/secret.yaml \
-		IDENTITYPROVIDER_DEPLOYMENT=identityprovider2-deployment \
-		IDENTITYPROVIDER_JWT_SECRET=identityprovider2-jwt
+		KUSTOMIZE_APPLY_DIR=overlays/cilium2 \
+		IDENTITYPROVIDER_NAMESPACE=identityprovider-cilium2 \
+		IDENTITYPROVIDER_ENDPOINT_HOST=identityprovider.identityprovider-cilium2 \
+		SERVICEACCOUNT=identityprovider2
 
 multi-prepare-cilium-athenz:
 	@athenz_ip="$$(docker inspect "$(ATHENZ_CONTROL_PLANE)" --format '{{with index .NetworkSettings.Networks "$(KIND_MULTI_NETWORK)"}}{{.IPAddress}}{{end}}')"; \
