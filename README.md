@@ -187,6 +187,109 @@ Error Set:
 
 </details>
 
+<details>
+<summary>Sidecar Loadtest</summary>
+
+```
+% make test-kubernetes-athenz-envoy-loadtest
+CASE=client2echoserver; kubectl -n athenz exec deployment/vegeta -- /bin/sh -c "echo \"GET https://client.athenz.svc.cluster.local/$CASE\" | vegeta attack -workers=100 -rate=100 -duration=30s -keepalive false | tee /data/$CASE.bin | vegeta report"
+Requests      [total, rate]            3000, 100.03
+Duration      [total, attack, wait]    29.993097556s, 29.990822056s, 2.2755ms
+Latencies     [mean, 50, 95, 99, max]  7.247183ms, 2.106084ms, 35.507ms, 140.310542ms, 272.718167ms
+Bytes In      [total, mean]            21762000, 7254.00
+Bytes Out     [total, mean]            0, 0.00
+Success       [ratio]                  100.00%
+Status Codes  [code:count]             200:3000
+Error Set:
+CASE=client2extauthz; kubectl -n athenz exec deployment/vegeta -- /bin/sh -c "echo \"GET https://client.athenz.svc.cluster.local/$CASE\" | vegeta attack -workers=100 -rate=100 -duration=30s -keepalive false | tee /data/$CASE.bin | vegeta report"
+Requests      [total, rate]            3000, 100.03
+Duration      [total, attack, wait]    30.084819932s, 29.990192348s, 94.627584ms
+Latencies     [mean, 50, 95, 99, max]  17.890576ms, 2.62875ms, 105.842375ms, 267.291875ms, 612.264375ms
+Bytes In      [total, mean]            22755000, 7585.00
+Bytes Out     [total, mean]            0, 0.00
+Success       [ratio]                  100.00%
+Status Codes  [code:count]             200:3000
+Error Set:
+CASE=client2extauthzmtls; kubectl -n athenz exec deployment/vegeta -- /bin/sh -c "echo \"GET https://client.athenz.svc.cluster.local/$CASE\" | vegeta attack -workers=100 -rate=100 -duration=30s -keepalive false | tee /data/$CASE.bin | vegeta report"
+Requests      [total, rate]            3000, 100.03
+Duration      [total, attack, wait]    29.993742806s, 29.990663139s, 3.079667ms
+Latencies     [mean, 50, 95, 99, max]  13.935723ms, 2.875416ms, 74.733292ms, 237.327208ms, 493.842708ms
+Bytes In      [total, mean]            29447776, 9815.93
+Bytes Out     [total, mean]            0, 0.00
+Success       [ratio]                  100.00%
+Status Codes  [code:count]             200:3000
+Error Set:
+CASE=client2filterauthzmtls; kubectl -n athenz exec deployment/vegeta -- /bin/sh -c "echo \"GET https://client.athenz.svc.cluster.local/$CASE\" | vegeta attack -workers=100 -rate=100 -duration=30s -keepalive false | tee /data/$CASE.bin | vegeta report"
+Requests      [total, rate]            3000, 100.03
+Duration      [total, attack, wait]    29.993186598s, 29.990697973s, 2.488625ms
+Latencies     [mean, 50, 95, 99, max]  2.415141ms, 2.364167ms, 3.026458ms, 3.567791ms, 13.458083ms
+Bytes In      [total, mean]            22605000, 7535.00
+Bytes Out     [total, mean]            0, 0.00
+Success       [ratio]                  100.00%
+Status Codes  [code:count]             200:3000
+Error Set:
+CASE=client2filterauthzjwt; kubectl -n athenz exec deployment/vegeta -- /bin/sh -c "echo \"GET https://client.athenz.svc.cluster.local/$CASE\" | vegeta attack -workers=100 -rate=100 -duration=30s -keepalive false | tee /data/$CASE.bin | vegeta report"
+Requests      [total, rate]            3000, 100.03
+Duration      [total, attack, wait]    29.993356973s, 29.990920973s, 2.436ms
+Latencies     [mean, 50, 95, 99, max]  5.98144ms, 2.579166ms, 7.87375ms, 96.936417ms, 216.02375ms
+Bytes In      [total, mean]            23026395, 7675.47
+Bytes Out     [total, mean]            0, 0.00
+Success       [ratio]                  100.00%
+Status Codes  [code:count]             200:3000
+Error Set:
+CASE=client2filterauthzmtlsjwt; kubectl -n athenz exec deployment/vegeta -- /bin/sh -c "echo \"GET https://client.athenz.svc.cluster.local/$CASE\" | vegeta attack -workers=100 -rate=100 -duration=30s -keepalive false | tee /data/$CASE.bin | vegeta report"
+Requests      [total, rate]            3000, 100.03
+Duration      [total, attack, wait]    29.999663014s, 29.990820264s, 8.84275ms
+Latencies     [mean, 50, 95, 99, max]  13.169432ms, 2.581917ms, 83.853166ms, 182.894042ms, 373.663167ms
+Bytes In      [total, mean]            29801264, 9933.75
+Bytes Out     [total, mean]            0, 0.00
+Success       [ratio]                  100.00%
+Status Codes  [code:count]             200:3000
+Error Set:
+CASE=client2webhookauthzmtls; kubectl -n athenz exec deployment/vegeta -- /bin/sh -c "echo \"GET https://client.athenz.svc.cluster.local/$CASE\" | vegeta attack -workers=100 -rate=100 -duration=30s -keepalive false | tee /data/$CASE.bin | vegeta report"
+Requests      [total, rate]            3000, 100.03
+Duration      [total, attack, wait]    29.994868015s, 29.990997181s, 3.870834ms
+Latencies     [mean, 50, 95, 99, max]  3.219626ms, 3.075ms, 4.068333ms, 5.10625ms, 22.112625ms
+Bytes In      [total, mean]            22593496, 7531.17
+Bytes Out     [total, mean]            0, 0.00
+Success       [ratio]                  100.00%
+Status Codes  [code:count]             200:3000
+Error Set:
+CASE=client2webhookauthzjwt; kubectl -n athenz exec deployment/vegeta -- /bin/sh -c "echo \"GET https://client.athenz.svc.cluster.local/$CASE\" | vegeta attack -workers=100 -rate=100 -duration=30s -keepalive false | tee /data/$CASE.bin | vegeta report"
+Requests      [total, rate]            3000, 100.03
+Duration      [total, attack, wait]    29.993201764s, 29.990291639s, 2.910125ms
+Latencies     [mean, 50, 95, 99, max]  8.725848ms, 3.169083ms, 7.112ms, 181.205791ms, 416.827333ms
+Bytes In      [total, mean]            23040000, 7680.00
+Bytes Out     [total, mean]            0, 0.00
+Success       [ratio]                  100.00%
+Status Codes  [code:count]             200:3000
+Error Set:
+CASE=client2webhookauthzmtlsjwt; kubectl -n athenz exec deployment/vegeta -- /bin/sh -c "echo \"GET https://client.athenz.svc.cluster.local/$CASE\" | vegeta attack -workers=100 -rate=100 -duration=30s -keepalive false | tee /data/$CASE.bin | vegeta report"
+Requests      [total, rate]            3000, 100.03
+Duration      [total, attack, wait]    29.993829431s, 29.990378723s, 3.450708ms
+Latencies     [mean, 50, 95, 99, max]  8.760483ms, 3.085875ms, 25.624166ms, 168.85675ms, 439.059375ms
+Bytes In      [total, mean]            29801694, 9933.90
+Bytes Out     [total, mean]            0, 0.00
+Success       [ratio]                  100.00%
+Status Codes  [code:count]             200:3000
+Error Set:
+CASE=client2authzproxy; kubectl -n athenz exec deployment/vegeta -- /bin/sh -c "echo \"GET https://client.athenz.svc.cluster.local/$CASE\" | vegeta attack -workers=100 -rate=100 -duration=30s -keepalive false | tee /data/$CASE.bin | vegeta report"
+Requests      [total, rate]            3000, 100.03
+Duration      [total, attack, wait]    29.993043098s, 29.991041056s, 2.002042ms
+Latencies     [mean, 50, 95, 99, max]  12.053946ms, 2.308333ms, 69.010458ms, 252.073584ms, 526.667334ms
+Bytes In      [total, mean]            22617000, 7539.00
+Bytes Out     [total, mean]            0, 0.00
+Success       [ratio]                  100.00%
+Status Codes  [code:count]             200:3000
+Error Set:
+
+**************************************
+**  Loadtest completed successfully **
+**************************************
+```
+
+</details>
+
 ## Cleanup
 
 ```bash
@@ -334,7 +437,7 @@ These are inherent limitations of Cilium's mutual authentication mechanism (not 
 | Limitation | Detail |
 |------------|--------|
 | **Authentication only, no encryption** | Cilium mTLS verifies identity via a TLS handshake between agents, but does **not** encrypt the actual pod-to-pod datapath traffic. Encryption requires a separate mechanism (e.g. WireGuard). |
-| **No Cluster Mesh support** | There is no option to build a single trust domain across multiple clusters connected via Cluster Mesh. However, since the Athenz integration uses a single external CA (Athenz ZTS) rather than a per-cluster SPIRE server, cross-cluster trust may be achievable in the future. |
+| **No Cluster Mesh support** | There is no option to build a single trust domain across multiple clusters connected via Cluster Mesh. However, since the Athenz integration uses a single external CA (Athenz ZTS) rather than a per-cluster SPIRE server, cross-cluster mTLS has been experimentally verified to work. See [Multi-Cluster](docs/multi-cluster.md) for details. |
 | **Not compatible with external mTLS** | The mechanism only works within a Cilium-managed cluster and cannot be combined with an external mTLS solution. |
 | **Reserved identities are excluded** | Cilium's reserved identities (host, world, health, init, etc.) are skipped during authentication. Traffic involving these identities is not mTLS-protected. |
 | **Beta status** | The feature remains in beta. Per-connection handshake, WireGuard integration, and network encryption using auth secrets are on the roadmap but not yet implemented. |
